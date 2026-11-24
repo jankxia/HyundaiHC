@@ -3,7 +3,9 @@ package com.jankxia.hyundaic.platform.media
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
+import android.os.Build
 import java.io.Closeable
+import java.nio.ByteBuffer
 
 /**
  * 车机麦克风的 AAC-LC 编码（手机这次要 AAC 时用）：MediaCodec 把 20ms 一块的 PCM 编成 AAC 帧，
@@ -58,7 +60,7 @@ class MicAacEncoder(
         if (closed) return
         val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
         if (index >= 0) {
-            val buffer = codec.getInputBuffer(index)
+            val buffer = bufferOf(codec, index, input = true)
             if (buffer == null) {
                 dropped++
             } else {
@@ -81,7 +83,7 @@ class MicAacEncoder(
             if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return
             // 输出格式变化等通知：不带数据，接着取。
             if (index < 0) continue
-            val buffer = codec.getOutputBuffer(index)
+            val buffer = bufferOf(codec, index, input = false)
             val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
             if (buffer != null && !isConfig && info.size > 0 && info.size + AdtsWriter.HEADER_BYTES <= AdtsWriter.MAX_FRAME_BYTES) {
                 val frame = ByteArray(AdtsWriter.HEADER_BYTES + info.size)
@@ -93,6 +95,16 @@ class MicAacEncoder(
             }
             codec.releaseOutputBuffer(index, false)
         }
+    }
+
+    /** 输入、输出缓冲按序号取。安卓 5.0 起有按序号的接口，更早的系统只能用整组缓冲的数组。 */
+    @Suppress("DEPRECATION")
+    private fun bufferOf(codec: MediaCodec, index: Int, input: Boolean): ByteBuffer? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return if (input) codec.getInputBuffer(index) else codec.getOutputBuffer(index)
+        }
+        val buffers: Array<ByteBuffer>? = if (input) codec.inputBuffers else codec.outputBuffers
+        return buffers?.getOrNull(index)
     }
 
     override fun close() {

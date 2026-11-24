@@ -6,11 +6,14 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.os.Build
 import android.os.ParcelUuid
+import android.annotation.TargetApi
 import java.util.UUID
 
 /**
  * 车机的一次 BLE 广播：[start] 之后到 [stop] 之间发同一份数据；要换数据就停掉这个、再开一个新的。
+ * BLE 广播是安卓 5.0（API 21）起才有的接口，更早的系统（含 4.4）用不了，见 [support]。
  *
  * 广播参数：传统广播、可连接（因而可扫描）、低延迟档（约 100 ms 一次）、中档发射功率（约 −7 dBm）、不超时；
  * 广播数据只有挂在 [serviceDataUuid] 下的一段 Service Data，不带设备名和功率字段，扫描响应为空。
@@ -24,6 +27,7 @@ import java.util.UUID
  *
  * 权限：安卓 12 起要「附近的设备」里的广播权限（BLUETOOTH_ADVERTISE），更早是清单里的普通蓝牙权限；没有时报 onFailed。
  */
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 class BleBeacon(
     private val adapter: BluetoothAdapter,
     private val serviceDataUuid: UUID,
@@ -157,6 +161,9 @@ class BleBeacon(
          * 系统在蓝牙关着时一律报不支持，所以先确认蓝牙开着再问。
          */
         fun support(adapter: BluetoothAdapter?): Support {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                return Support.Unavailable("BLE 广播要安卓 5.0 起（这台是 ${Build.VERSION.RELEASE}）")
+            }
             if (adapter == null) return Support.Unavailable("没有蓝牙")
             val on = try {
                 adapter.isEnabled

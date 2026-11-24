@@ -111,11 +111,19 @@ internal object DiagnosticsExport {
         }
     }
 
+    /** 安卓 6.0 起才有按权限查的接口（调用前要确认版本，见 [facts]）。 */
+    @TargetApi(Build.VERSION_CODES.M)
+    private fun granted(app: Context, permission: String): Boolean =
+        app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
     private fun facts(app: Context, now: Date): List<Pair<String, String>> {
         val sdk = Build.VERSION.SDK_INT
         val wireless = WirelessPreferences(app)
         val metrics = app.resources.displayMetrics
-        val missing = WirelessPermissions.missing(sdk) { app.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+        // 安卓 6.0 起权限要运行时申请，那时才查得到；更早的系统安装时就给了，按已授予处理。
+        val missing = WirelessPermissions.missing(sdk) { permission ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) true else granted(app, permission)
+        }
         return listOf(
             "导出时间" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(now),
             "HyundaiHC" to "${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}，${BuildConfig.BUILD_TYPE}）",

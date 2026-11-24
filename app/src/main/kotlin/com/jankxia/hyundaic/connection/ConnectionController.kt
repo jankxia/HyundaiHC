@@ -42,6 +42,7 @@ import com.jankxia.hyundaic.settings.MediaKeyPreferences
 import com.jankxia.hyundaic.settings.VideoPreferences
 import com.jankxia.hyundaic.trust.FileTrustStore
 import com.jankxia.hyundaic.trust.TrustStoreCorruptException
+import com.jankxia.hyundaic.trust.noBackupDirectory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,7 +92,7 @@ class ConnectionController(context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val usbManager = app.getSystemService(Context.USB_SERVICE) as? UsbManager
     /** 信任库目录：不参与备份的应用私有目录。第一次取会建目录，所以留到调度线程上用到时再取。 */
-    private val trustDir by lazy { File(app.noBackupFilesDir, TRUST_DIR) }
+    private val trustDir by lazy { noBackupDirectory(app, TRUST_DIR) }
 
     private val mutableState = MutableStateFlow(ConnectionUiState())
 

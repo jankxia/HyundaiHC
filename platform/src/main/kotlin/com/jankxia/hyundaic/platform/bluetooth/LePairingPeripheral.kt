@@ -15,7 +15,9 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
+import android.os.Build
 import android.os.ParcelUuid
+import android.annotation.TargetApi
 import java.util.UUID
 
 /**
@@ -40,7 +42,9 @@ import java.util.UUID
  * [close] 可重复调用，之后不再回调；广播还在启动中时先记下，等系统回了「已开始」再真正停掉。
  *
  * 权限：安卓 12 起要「附近的设备」（BLUETOOTH_CONNECT、BLUETOOTH_ADVERTISE），更早是清单里的普通蓝牙权限；没有时报 onFailed。
+ * 广播是安卓 5.0（API 21）起才有的接口：更早的系统（含 4.4）[open] 直接报不支持。
  */
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 class LePairingPeripheral(
     context: Context,
     private val adapter: BluetoothAdapter,

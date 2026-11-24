@@ -29,9 +29,14 @@ object WifiStatus {
         } catch (e: RuntimeException) {
             false
         }
-        val fiveG = try {
-            wifi?.is5GHzBandSupported == true
-        } catch (e: RuntimeException) {
+        // 安卓 5.0 起才能问 5 GHz 支不支持；更早的系统默认当作不支持（4.4 车机热点一般也只有 2.4 GHz）。
+        val fiveG = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                wifi?.is5GHzBandSupported == true
+            } catch (e: RuntimeException) {
+                false
+            }
+        } else {
             false
         }
         return Snapshot(
@@ -44,12 +49,18 @@ object WifiStatus {
 
     /**
      * 车机作为终端正连着的 WiFi 的频率，没连或读不到为 0。安卓 12 起这个接口标为过时（新接口要注册网络回调），
-     * 但仍然返回当前连接的信息，频率不受隐私限制。
+     * 但仍然返回当前连接的信息，频率不受隐私限制。安卓 5.0 以前读不到频率，返回 0。
      */
     @Suppress("DEPRECATION")
     fun stationFrequency(context: Context): Int = try {
         val info = wifiManager(context)?.connectionInfo
-        if (info == null || info.networkId == -1) 0 else info.frequency.coerceAtLeast(0)
+        if (info == null || info.networkId == -1) {
+            0
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            info.frequency.coerceAtLeast(0)
+        } else {
+            0
+        }
     } catch (e: RuntimeException) {
         0
     }

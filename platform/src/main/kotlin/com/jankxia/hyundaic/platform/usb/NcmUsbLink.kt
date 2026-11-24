@@ -5,6 +5,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.SystemClock
 import com.jankxia.hyundaic.core.common.MalformedMessageException
 import com.jankxia.hyundaic.platform.net.NtbOutLayout
@@ -81,6 +82,11 @@ internal class NcmUsbLink private constructor(
          * @param log 记录过程的回调（不含设备标识）。
          */
         fun open(usbManager: UsbManager, device: UsbDevice, sdkInt: Int, log: (String) -> Unit): NcmUsbLink {
+            // 切备用设置（setInterface）和读备用设置号都是安卓 5.0 起才有的接口：4.4 上没法把数据口切到
+            // 带端点的备用设置，NCM 这条线走不通，明说而不是等到调用时抛 NoSuchMethodError。
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                throw IOException("USB 网卡要安卓 5.0 起（这台是 ${Build.VERSION.RELEASE}）：系统没有切换接口备用设置的接口")
+            }
             val selection = NcmInterfaces.select(UsbDescriber.describe(device))
                 ?: throw IOException("没找到 NCM 控制口或带批量端点的数据口")
             val control = device.getInterface(selection.control.index)

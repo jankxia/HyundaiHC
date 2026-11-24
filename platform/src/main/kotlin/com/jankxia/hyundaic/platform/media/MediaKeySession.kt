@@ -1,13 +1,9 @@
 package com.jankxia.hyundaic.platform.media
 
 import android.content.Context
-import android.content.Intent
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.view.KeyEvent
+import com.jankxia.hyundaic.platform.log.Log
 import java.io.Closeable
 
 /**
@@ -19,6 +15,11 @@ import java.io.Closeable
  *   播放控制命令（来自车机界面上的媒体控件等）交给 [Listener.onCommand]。
  * - 回调都在主线程上。[close] 后不再回调。
  * - 不申请音频焦点，也不出声；什么时候建、什么时候关由调用方决定（例如只在替手机拿着媒体焦点时）。
+ *
+ * ## 安卓版本
+ * 会话本身是 `android.media.session.MediaSession`，安卓 5.0（API 21）起才有。安卓 4.4 上没有它：
+ * 那边建出来的会话什么都不做（[supported] 为 false），方向盘键只在投屏页前台时由界面收到并转给手机。
+ * 高版本的那部分隔在 [MediaKeySession21] 里，4.4 不会加载它引用的类。
  */
 class MediaKeySession(context: Context, tag: String, private val listener: Listener) : Closeable {
 
@@ -30,61 +31,27 @@ class MediaKeySession(context: Context, tag: String, private val listener: Liste
         fun onCommand(command: MediaKeyForwarder.Command)
     }
 
-    private val session = MediaSession(context.applicationContext ?: context, tag)
+    /** 这次会话能不能真的收到系统派的媒体按钮（安卓 4.4 上为 false）。 */
+    val supported: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+
+    private val impl: MediaKeySession21? =
+        if (supported) MediaKeySession21(context.applicationContext ?: context, tag, listener) else null
+
     private var closed = false
 
     init {
-        session.setCallback(Callback(), Handler(Looper.getMainLooper()))
-        // 安卓 8.0 起这两个标志总是生效、接口已弃用；更低的版本要显式声明才收得到媒体按钮。
-        @Suppress("DEPRECATION")
-        session.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
-        session.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(ACTIONS)
-                .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
-                .build(),
-        )
-        session.isActive = true
+        if (!supported) {
+            Log.i(TAG, "安卓 4.4 没有媒体会话：不在前台时方向盘键收不到，投屏页在前台时照常转给手机")
+        }
     }
 
     override fun close() {
         if (closed) return
         closed = true
-        session.isActive = false
-        session.release()
-    }
-
-    private inner class Callback : MediaSession.Callback() {
-        override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
-            if (closed) return false
-            val event = keyEventOf(mediaButtonIntent) ?: return super.onMediaButtonEvent(mediaButtonIntent)
-            return listener.onMediaKey(event) || super.onMediaButtonEvent(mediaButtonIntent)
-        }
-
-        override fun onPlay() = command(MediaKeyForwarder.Command.PLAY)
-
-        override fun onPause() = command(MediaKeyForwarder.Command.PAUSE)
-
-        override fun onSkipToNext() = command(MediaKeyForwarder.Command.NEXT)
-
-        override fun onSkipToPrevious() = command(MediaKeyForwarder.Command.PREVIOUS)
-
-        override fun onStop() = command(MediaKeyForwarder.Command.STOP)
-
-        private fun command(command: MediaKeyForwarder.Command) {
-            if (!closed) listener.onCommand(command)
-        }
+        impl?.close()
     }
 
     private companion object {
-        const val ACTIONS = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
-            PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_STOP
-
-        fun keyEventOf(intent: Intent): KeyEvent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
-        }
+        const val TAG = "HyundaiHC-MediaKey"
     }
 }

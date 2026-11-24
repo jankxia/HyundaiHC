@@ -58,6 +58,7 @@ import com.jankxia.hyundaic.startup.BootStart
 import com.jankxia.hyundaic.startup.BootStartPolicy
 import com.jankxia.hyundaic.trust.FileTrustStore
 import com.jankxia.hyundaic.trust.TrustStoreCorruptException
+import com.jankxia.hyundaic.trust.noBackupDirectory
 import java.io.File
 import java.io.IOException
 import java.security.SecureRandom
@@ -91,12 +92,17 @@ import kotlinx.coroutines.flow.update
  * 界面不在前台时先把它带到前台再拨（[surfaceUi]）：车主要看到投屏；而且安卓 10 起定位权限只在界面在前台时算数，否则开不了热点。
  * 有线在等插线时，认识的手机蓝牙连上就请有线停下、改走无线。拨号没成就回到空闲，界面上一行说明，不再等。
  * 用户点「开始无线连接」是扫码连接（新手机配对，配对过的手机扫码免输码）。被动等手机回连（「等已配对的手机回连」、BLE 广播）
- * 已不再自动进入，相关代码待删。
+ * 已不再自动进入，代码里还剩一条走不通的旧路径。
  *
- * WiFi（规则在 [WirelessNetworkPlan]）：车机开本地热点（[LocalHotspotOwner]，安卓 8.0 起才有，更早的车机用不了无线）。
+ * WiFi（规则在 [WirelessNetworkPlan]）：三条通道，按这个顺序判断——
+ * 1. 车机自带热点（[WirelessPreferences] 里车主填了 SSID / 密码并勾了启用）：车机自己就是热点，任何安卓版本都行，
+ *    安卓 4.4 车机走的这条；
+ * 2. WiFi 直连组（[WifiDirectGroup]）：车机和手机直连，安卓 4.0 起就有；
+ * 3. 本地热点（[LocalHotspotOwner]，安卓 8.0 起才有）：前两条都不用时才走。
  * 有连接在进行时就先把热点开好留着（车机主动回连要等车机连上手机的蓝牙控制通道之后才开，手机不在时不碰车机 WiFi），
  * 手机认证通过后直接用；连接结束就关（[syncHotspotStandby]），这期间车机自己的 WiFi 会被热点顶掉。
  * 「退出后恢复车机 WiFi」开着时，热点关掉后由 [wifiRestore] 把车机 WiFi 开回来（安卓 10 起改为提示车主）。
+ * 旧系统（安卓 8.0 以前）三条里只能走前两条，一条都配不上时开始无线会直接报「旧系统需要车机热点」。
  *
  * 另一个设置：「只用数据线连接」开着时完全不做无线（不拨手机、开始不了，手机还没连上的扫码等待立刻停）。
  *
@@ -124,7 +130,7 @@ class WirelessController(
     private val worker = HandlerThread("HyundaiHC-Wireless").also { it.start() }
     private val handler = Handler(worker.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val trustDir by lazy { File(app.noBackupFilesDir, TRUST_DIR) }
+    private val trustDir by lazy { noBackupDirectory(app, TRUST_DIR) }
 
     private val mutableState = MutableStateFlow(WirelessUiState())
 

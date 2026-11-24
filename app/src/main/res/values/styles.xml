@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用主题：安卓 4.4（API 19）也能用。Material 主题是安卓 5.0 起才有的，
+  高版本在 values-v21/styles.xml 里换成 Material 的深色无标题栏样式。
+-->
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.Holo.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

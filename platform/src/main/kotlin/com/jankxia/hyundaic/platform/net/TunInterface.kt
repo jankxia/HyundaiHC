@@ -1,10 +1,12 @@
 package com.jankxia.hyundaic.platform.net
 
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
+import android.annotation.TargetApi
 import java.io.Closeable
 import java.io.FileDescriptor
 import java.io.IOException
@@ -16,7 +18,10 @@ import java.io.InterruptedIOException
  * 读用 poll 同时等 TUN 和一根唤醒管道，[wakeup] 往管道里写一个字节，阻塞中的读立刻返回。
  * 不能靠关 TUN 描述符来叫醒读线程：别的线程阻塞在读上时关描述符叫不醒它，描述符号还可能马上被系统复用。
  * 所以停止的顺序是：[wakeup] → 等读线程退出 → [close]。
+ *
+ * 用到的 `android.system.Os` 是安卓 5.0（API 21）起才有的：4.4 上不会建这个对象（见 [VpnTunnel.open]）。
  */
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 internal class TunInterface(private val descriptor: ParcelFileDescriptor) : PacketTunnel, Closeable {
 
     private val fd: FileDescriptor = descriptor.fileDescriptor

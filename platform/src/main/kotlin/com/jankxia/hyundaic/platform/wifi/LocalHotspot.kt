@@ -505,11 +505,17 @@ class LocalHotspotOwner private constructor(context: Context) {
         false
     }
 
-    /** 车机作为终端正连着的 WiFi 的频率（日志用），没连为 0。 */
+    /** 车机作为终端正连着的 WiFi 的频率（日志用），没连为 0。安卓 5.0 以前读不到频率，返回 0。 */
     @Suppress("DEPRECATION")
     private fun stationFrequency(): Int = try {
         val info = wifi?.connectionInfo
-        if (info == null || info.networkId == -1) 0 else info.frequency.coerceAtLeast(0)
+        if (info == null || info.networkId == -1) {
+            0
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            info.frequency.coerceAtLeast(0)
+        } else {
+            0
+        }
     } catch (e: RuntimeException) {
         0
     }

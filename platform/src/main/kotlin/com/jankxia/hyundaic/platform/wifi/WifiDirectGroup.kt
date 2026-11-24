@@ -509,9 +509,13 @@ class WifiDirectGroupOwner(
 
     /**
      * 按住车机的蜂窝网络请求，直到组拆掉。没有蜂窝网络的车机上请求一直等着，不影响什么。
-     * 要「改网络状态」权限（普通权限，清单里声明即可）。
+     * 要「改网络状态」权限（普通权限，清单里声明即可）。网络请求接口是安卓 5.0 起才有的，更早的系统跳过。
      */
     private fun holdCellular() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            log("安卓 ${Build.VERSION.RELEASE} 没有网络请求接口，按不住车机的蜂窝网络")
+            return
+        }
         val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {}
         try {
@@ -534,6 +538,7 @@ class WifiDirectGroupOwner(
     private fun releaseCellular() {
         val callback = cellular ?: return
         cellular = null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
         try {
             (app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.unregisterNetworkCallback(callback)
         } catch (e: RuntimeException) {
@@ -541,10 +546,14 @@ class WifiDirectGroupOwner(
         }
     }
 
-    private fun fiveGhzSupported(): Boolean = try {
-        (app.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.is5GHzBandSupported == true
-    } catch (e: RuntimeException) {
-        false
+    /** 安卓 5.0 起才能问 5 GHz 支不支持；更早的系统当作不支持。 */
+    private fun fiveGhzSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
+        return try {
+            (app.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.is5GHzBandSupported == true
+        } catch (e: RuntimeException) {
+            false
+        }
     }
 
     private fun wifiEnabled(): Boolean = try {
@@ -553,11 +562,17 @@ class WifiDirectGroupOwner(
         false
     }
 
-    /** 车机作为终端正连着的 WiFi 的频率，没连为 0。 */
+    /** 车机作为终端正连着的 WiFi 的频率，没连为 0。安卓 5.0 以前读不到频率，返回 0。 */
     @Suppress("DEPRECATION")
     private fun stationFrequency(): Int = try {
         val info = (app.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.connectionInfo
-        if (info == null || info.ipAddress == 0) 0 else info.frequency.coerceAtLeast(0)
+        if (info == null || info.ipAddress == 0) {
+            0
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            info.frequency.coerceAtLeast(0)
+        } else {
+            0
+        }
     } catch (e: RuntimeException) {
         0
     }

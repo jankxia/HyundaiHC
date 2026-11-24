@@ -1,6 +1,7 @@
 package com.jankxia.hyundaic.platform.usb
 
 import android.hardware.usb.UsbDevice
+import android.os.Build
 
 /** 安卓 `UsbDevice` → [UsbDeviceDescription]。 */
 object UsbDescriber {
@@ -11,7 +12,9 @@ object UsbDescriber {
             UsbInterfaceDescription(
                 index = i,
                 id = iface.id,
-                alternateSetting = iface.alternateSetting,
+                // 备用设置号是安卓 5.0 起才读得到的：更早的系统（含 4.4）一律记 0，
+                // 好在那边 NCM 本来也走不通（见 NcmUsbLink.open）。
+                alternateSetting = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) iface.alternateSetting else 0,
                 interfaceClass = iface.interfaceClass,
                 interfaceSubclass = iface.interfaceSubclass,
                 interfaceProtocol = iface.interfaceProtocol,

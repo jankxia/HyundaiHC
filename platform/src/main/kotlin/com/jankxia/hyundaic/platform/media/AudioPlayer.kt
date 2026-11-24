@@ -302,7 +302,7 @@ class AudioPlayer(
                 frameBytes = frameBytes,
                 minimumBytes = minimum,
                 requestedBytes = requested,
-                bufferFrames = created.bufferSizeInFrames,
+                bufferFrames = bufferFramesOf(created, frameBytes, requested),
                 capacityFrames = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) created.bufferCapacityInFrames else null,
                 lowLatencyRequested = built.lowLatencyRequested,
                 performanceMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) created.performanceMode else null,
@@ -359,7 +359,13 @@ class AudioPlayer(
         }
         var done = 0
         while (done < length && !closed) {
-            val n = t.write(data, offset + done, length - done, AudioTrack.WRITE_BLOCKING)
+            // 安卓 6.0 起才有无返回值的阻塞写；更早的系统用三参数版，它在流模式下本来就是阻塞的。
+            val n = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                t.write(data, offset + done, length - done, AudioTrack.WRITE_BLOCKING)
+            } else {
+                @Suppress("DEPRECATION")
+                t.write(data, offset + done, length - done)
+            }
             if (n < 0) {
                 fatal("AudioTrack.write 返回 $n")
                 return
@@ -376,11 +382,45 @@ class AudioPlayer(
         val volume = requestedVolume
         if (!force && volume == appliedVolume) return
         try {
-            t.setVolume(volume)
+            // 安卓 5.0 起可以按通道单独设，这里两个通道一起设，效果相同；更早的系统只有立体声接口。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                t.setVolume(volume)
+            } else {
+                @Suppress("DEPRECATION")
+                t.setStereoVolume(volume, volume)
+            }
             appliedVolume = volume
         } catch (e: IllegalStateException) {
             // 音轨刚好在释放：下一块数据时再设。
         }
+    }
+
+    /**
+     * 音轨缓冲有多少帧：安卓 6.0 起能直接读帧数；更早的系统没有读缓冲大小的接口，
+     * 按向系统申请的字节数换算（只是日志和统计用，差一点不影响播放）。
+     */
+    private fun bufferFramesOf(track: AudioTrack, frameBytes: Int, requestedBytes: Int): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) return track.bufferSizeInFrames
+        return if (frameBytes > 0) requestedBytes / frameBytes else 0
+    }
+
+    /**
+     * 解码器的第 [index] 个输入缓冲。安卓 5.0 起有按序号的接口，更早的系统只能用整组缓冲的数组。
+     * 数组每次现取：解码器重启或 flush 之后旧的数组会失效。
+     */
+    private fun inputBufferOf(codec: MediaCodec, index: Int): ByteBuffer? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) return codec.getInputBuffer(index)
+        @Suppress("DEPRECATION")
+        val buffers = codec.inputBuffers ?: return null
+        return if (index in buffers.indices) buffers[index] else null
+    }
+
+    /** 解码器第 [index] 个输出缓冲，接口差异同 [inputBufferOf]。 */
+    private fun outputBufferOf(codec: MediaCodec, index: Int): ByteBuffer? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) return codec.getOutputBuffer(index)
+        @Suppress("DEPRECATION")
+        val buffers = codec.outputBuffers ?: return null
+        return if (index in buffers.indices) buffers[index] else null
     }
 
     /** 队列空了：AudioTrack 里也快放完时暂停，等重新攒够再放。 */
@@ -414,7 +454,7 @@ class AudioPlayer(
         try {
             val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
             if (index >= 0) {
-                val input: ByteBuffer = codec.getInputBuffer(index) ?: return
+                val input: ByteBuffer = inputBufferOf(codec, index) ?: return
                 input.clear()
                 input.put(unit, from, to - from)
                 codec.queueInputBuffer(index, 0, to - from, presentationUs, 0)
@@ -464,7 +504,7 @@ class AudioPlayer(
                 index >= 0 -> {
                     wait = 0L
                     if (info.size > 0) {
-                        val output = codec.getOutputBuffer(index)
+                        val output = outputBufferOf(codec, index)
                         if (output != null) {
                             if (pcm.size < info.size) pcm = ByteArray(info.size)
                             output.position(info.offset)

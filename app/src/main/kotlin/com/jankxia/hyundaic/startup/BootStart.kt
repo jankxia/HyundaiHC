@@ -111,11 +111,14 @@ internal object BootStart {
         }
     }
 
-    /** 有悬浮窗权限（安卓 10 起开机时打开界面要它）。 */
-    fun canDrawOverlays(context: Context): Boolean = try {
-        Settings.canDrawOverlays(context)
-    } catch (e: RuntimeException) {
-        false
+    /** 有悬浮窗权限（安卓 10 起开机时打开界面要它）。安卓 6.0 以前没有这个开关，按有权限处理。 */
+    fun canDrawOverlays(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        return try {
+            Settings.canDrawOverlays(context)
+        } catch (e: RuntimeException) {
+            false
+        }
     }
 
     /** 本应用的悬浮窗权限页。 */

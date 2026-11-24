@@ -10,6 +10,7 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.Choreographer
 import android.view.Surface
+import android.annotation.TargetApi
 import com.jankxia.hyundaic.core.common.MalformedMessageException
 import com.jankxia.hyundaic.core.hisight.AccessUnit
 import com.jankxia.hyundaic.core.hisight.AccessUnitSink
@@ -96,8 +97,9 @@ import kotlin.math.abs
  *   并设实时优先级；配置失败就逐级去掉这些键重试，还不行换下一个解码器。
  *
  * ## 安卓版本
- * 用到的异步回调、setOutputSurface、异步模式下 flush 后重新 start、上屏回调、私有格式的 ImageReader、
- * 非主线程上的 Choreographer、屏幕的帧时间偏移和送显提前量都是安卓 6.0（API 23）就有的，minSdk 下全部可用。
+ * 用到的异步回调（`setCallback`）、setOutputSurface、异步模式下 flush 后重新 start、上屏回调、私有格式的 ImageReader、
+ * 非主线程上的 Choreographer、屏幕的帧时间偏移和送显提前量都是安卓 6.0（API 23）就有的。本类因此只在安卓 6.0 起可用：
+ * minSdk 19 的构建里，安卓 4.4～5.1 的车机到这里会被 [Listener.onDecoderUnavailable] 明确告知不支持，不当场崩。
  * 标准低延迟模式要安卓 11（API 30），更早的系统只靠厂商键和实时优先级；判断解码器是不是硬件、
  * 跳过别名在安卓 10（API 29）以下按名字判断。
  */
@@ -554,7 +556,14 @@ class VideoDecoder @JvmOverloads constructor(
         val config = cache.isConfig(seq)
         val replay = cache.isReplay(seq)
         val buffer: ByteBuffer? = try {
-            c.getInputBuffer(index)
+            // 安卓 5.0 起有按序号的接口；更早只能用整组缓冲的数组（4.4 走不到这里，见 configureLocked）。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                c.getInputBuffer(index)
+            } else {
+                @Suppress("DEPRECATION")
+                val buffers: Array<ByteBuffer>? = c.inputBuffers
+                buffers?.getOrNull(index)
+            }
         } catch (e: IllegalStateException) {
             null
         }
@@ -803,6 +812,19 @@ class VideoDecoder @JvmOverloads constructor(
     // ---------------------------------------------------------------- 解码器生命周期
 
     private fun configureLocked(sps: H264Sps): Boolean {
+        // 异步回调是安卓 6.0（API 23）才有的接口：更早的系统（含 4.4、5.0、5.1）没有它，建了解码器也送不进帧。
+        // 这里明说、不再往下走，免得调用 setCallback 时抛 NoSuchMethodError 直接把应用带崩。
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            Log.e(
+                TAG,
+                "安卓 ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）没有 MediaCodec 异步回调，不能解投屏画面",
+            )
+            notifyListener {
+                onDecoderUnavailable("这台车机是安卓 ${Build.VERSION.RELEASE}，系统没有投屏需要的视频解码接口（要 6.0 起）")
+            }
+            requireSyncLocked(ResyncReason.DECODER_ERROR)
+            return false
+        }
         val surface = outputSurfaceLocked(sps)
         if (surface == null) {
             requireSyncLocked(ResyncReason.SURFACE_LOST)
@@ -853,6 +875,7 @@ class VideoDecoder @JvmOverloads constructor(
         null
     }
 
+    @TargetApi(Build.VERSION_CODES.M)
     private fun startCodec(c: MediaCodec, format: MediaFormat, surface: Surface, tier: Int): Boolean = try {
         c.setCallback(codecCallback, handler)
         try {
@@ -1046,6 +1069,7 @@ class VideoDecoder @JvmOverloads constructor(
         }
     }
 
+    @TargetApi(Build.VERSION_CODES.M)
     private fun switchOutputLocked(c: MediaCodec, target: Surface): Boolean = try {
         c.setOutputSurface(target)
         true
@@ -1083,6 +1107,7 @@ class VideoDecoder @JvmOverloads constructor(
 
     // ---------------------------------------------------------------- 解码线程
 
+    @TargetApi(Build.VERSION_CODES.M)
     private inner class CodecCallback : MediaCodec.Callback() {
         override fun onInputBufferAvailable(c: MediaCodec, index: Int) {
             lock.withLock {

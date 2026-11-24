@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.os.Build
+import android.annotation.TargetApi
 
 /**
  * 一路声音的用途：决定播放器音轨的 AudioAttributes（车机按它选音量档和输出路径），也是申请音频焦点的单位
@@ -39,6 +40,7 @@ class TrackAttributes(val attributes: AudioAttributes, val note: String)
  */
 // 故意传标准以外的内容类型：车机系统扩展的值，标准系统会抛异常并退回。
 @SuppressLint("WrongConstant")
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 fun AudioUsage.trackAttributes(): TrackAttributes {
     if (this != AudioUsage.NAVIGATION) return TrackAttributes(attributes(), "")
     return try {
@@ -61,7 +63,10 @@ fun AudioUsage.trackAttributes(): TrackAttributes {
 /**
  * 音轨用的 AudioAttributes。提示与语音在安卓 8.0 起用 `USAGE_ASSISTANT`；更低的版本没有它，用
  * `USAGE_ASSISTANCE_SONIFICATION`。
+ *
+ * 安卓 4.4 没有 AudioAttributes，那边的音轨用 [streamType] 建、焦点用老接口申请，不会调到这个函数。
  */
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 fun AudioUsage.attributes(): AudioAttributes {
     val builder = AudioAttributes.Builder()
     when (this) {

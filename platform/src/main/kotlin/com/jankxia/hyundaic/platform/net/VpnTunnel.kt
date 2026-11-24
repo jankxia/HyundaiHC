@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import java.io.Closeable
@@ -49,6 +50,10 @@ internal class VpnTunnel private constructor(
             onRevoked: () -> Unit,
         ): VpnTunnel {
             check(Looper.myLooper() != Looper.getMainLooper()) { "不能在主线程建 TUN" }
+            // TUN 的收发靠 android.system.Os（安卓 5.0 起）：4.4 上没有它，有线这一路走不通，明说。
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                throw IOException("有线连接要安卓 5.0 起（这台是 ${Build.VERSION.RELEASE}）：系统没有 TUN 收发需要的接口")
+            }
             val app = context.applicationContext ?: context
             val connected = CountDownLatch(1)
             val serviceRef = AtomicReference<WiredVpnService?>()

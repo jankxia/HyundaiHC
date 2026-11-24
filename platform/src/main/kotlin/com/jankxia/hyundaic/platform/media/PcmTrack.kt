@@ -3,6 +3,7 @@ package com.jankxia.hyundaic.platform.media
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
+import android.annotation.TargetApi
 
 /**
  * 建 16 位 PCM 的流模式音轨。正式播放（[AudioPlayer]）和设置页的试听（[AudioPreview]）都用它，
@@ -47,9 +48,9 @@ object PcmTrack {
             val why = byNumber.exceptionOrNull()
             rejection = "声道 $choice 号被系统拒绝（${why?.javaClass?.simpleName}：${why?.message}），改按用途建"
         }
-        // 安卓 5.0（API 21）起才有 AudioAttributes / AudioTrack.Builder / AudioFormat.Builder；
-        // 更低版本（含 4.4）走老构造，按流类型建轨。Builder 路径隔离在独立函数里，老系统不加载这些类。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        // AudioTrack.Builder 是安卓 6.0（API 23）起才有的；更低的版本（含安卓 5.x、4.4）走老构造，按流类型建轨。
+        // Builder 路径隔离在独立函数里，老系统不加载这些类。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             return buildWithAttributes(usage, sampleRate, channelMask, bufferBytes, lowLatency, rejection)
         }
         val track = try {
@@ -68,7 +69,8 @@ object PcmTrack {
         return Built(track, rejection ?: "", lowLatencyRequested = false, streamRejected = rejection != null)
     }
 
-    /** API 21+：按 AudioAttributes 建轨（现有 Builder 路径）。 */
+    /** API 23+：按 AudioAttributes 建轨（AudioTrack.Builder 是安卓 6.0 起才有的）。 */
+    @TargetApi(Build.VERSION_CODES.M)
     private fun buildWithAttributes(
         usage: AudioUsage,
         sampleRate: Int,
