@@ -348,4 +348,56 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 | --- | --- |
 | 启动、身份加载、经典蓝牙配对与扫码、PCM 播放与麦克风、界面前台时的方向盘键、车机自带热点 / WiFi 直连两条数据通道 | 投屏画面（`VideoDecoder` 门禁）、有线 NCM（`setInterface` 缺失）、有线 VPN TUN（`android.system.Os` 缺失）、BLE 外设、本地热点、后台媒体键 |
 
-也就是说：4.4 车机能"连上、有声音"，**没有画面**。要画面得单独做一套同步轮询版解码器（`dequeueInputBuffer/dequeueOutputBuffer` + `getInputBuffers()` 数组，Surface 变就重建解码器），那是独立一大块，且必须真机验证，本轮没动。
+也就是说：阶段 5 时点，4.4 车机能"连上、有声音"，**没有画面**。画面这条已在阶段 6 按"同步轮询版解码器"补上（见下节）：4.4/5.x 走 `dequeueInputBuffer/dequeueOutputBuffer` + `getInputBuffers()` 数组，Surface 变就重建解码器。
+
+### 阶段 6：4.4～5.1 投屏解码 —— 同步轮询版（2026-11-24）
+
+> 起因：`MediaCodec.setCallback` 是 API 23，`setOutputSurface` 也是 API 23。原来 1290 行的 `VideoDecoder` 整个是围着异步回调 + 上屏节拍 + 重放缓存写的，4.4～5.1 一行都跑不起来，之前只能门禁拒绝（"有声音无画面"）。
+
+**做法：不动 6.0+ 那条成熟路径，另起一套同步实现，按版本二选一。**
+
+| 文件 | 作用 |
+| --- | --- |
+| `platform/.../media/SyncVideoDecoder.kt`（新增） | 4.1～5.1 的 H.264 同步解码：自己的解码线程循环 `dequeueInputBuffer` / `dequeueOutputBuffer`，出帧就 `releaseOutputBuffer(index, true)` 直接上屏 |
+| `app/.../projection/VideoSink.kt`（新增） | `VideoSink` 接口 + `AsyncVideoSink` / `SyncVideoSink` 两个包装 + `VideoSinks.create()` 工厂，按 `SDK_INT >= 23` 选实现 |
+| `app/.../projection/ProjectionView.kt` | `attachDecoder()` 参数从 `VideoDecoder?` 改成 `VideoSink?`（其余逻辑不变） |
+| `ConnectionController` / `WirelessController` | `videoDecoder: VideoDecoder?` → `videoSink: VideoSink?`；`prepareDecoder()` 改走 `VideoSinks.create()`；`mutableDecoder`/`decoder` 的泛型同步换成 `VideoSink?` |
+
+**同步版的取舍（有意为之）**
+
+- 不做上屏节拍：出帧立即 `releaseOutputBuffer(index, true)`。4.4 车机 720p 下影响有限，换来实现简单。
+- 不做重放缓存：Surface 没了就释放解码器停解，回来等手机下一个关键帧（会黑一下）。
+- 不切占位 Surface：`ImageReader(PRIVATE)` 本身是 API 21，4.4 用不了。
+- 不查解码器候选清单：直接用 `createDecoderByType("video/avc")` 的系统默认实现（`DecoderCatalog` 在 4.4 本来也返回空清单）。
+- 队列上限 48 帧：满了丢最旧一帧并重新等关键帧（参考链已断，硬解会花屏，宁可等 IDR）。
+- 参数集变了（SPS/PPS）当场用新参数重建；Surface 换了必重建（没有 `setOutputSurface`）。
+- `KEY_PRIORITY` 只在 API 19+ 设置，`KEY_OPERATING_RATE` 只在 API 21+ 设置，其余档位只给尺寸 + 参数集。
+
+**验证方式（关键，不是只编译过）**
+
+新增设备自检 `platform/src/androidTest/.../SyncVideoDecoderTest.kt`：用系统 H.264 编码器编 8 帧 320×240 灰画面（`COLOR_FormatYUV420SemiPlanar`，每帧一个 I），把 Annex-B 码流（含 AVCC→Annex-B 兜底转换）原样喂给 `SyncVideoDecoder`，断言：
+
+- `onDecoderUnavailable` 没被调用；
+- `renderedCount >= 3`（真的解出来上屏了，不是只收帧）；
+- `onVideoSizeChanged` 报出 320×240。
+
+结果（雷电 LDPlayer9，安卓 9 / API 28，x86_64）：
+
+```
+Starting 1 tests on emulator-5554 - 9
+Finished 1 tests on emulator-5554 - 9
+BUILD SUCCESSFUL in 3m 40s
+
+<testsuite name="...SyncVideoDecoderTest" tests="1" failures="0" errors="0" skipped="0" time="1.654">
+<testcase name="decodesFramesEncodedBySystemEncoder" time="0.398" />
+```
+
+同步接口在 API 28 上一样可用，所以这条用例能证明"这段代码真的解得动"，而不是只证明编译通过。**注意它没有在真正的 API 19 上跑过**：本地没有 4.4 镜像（见第 8 节），4.4 车机上仍需真机验证。
+
+**已知限制**
+
+- 4.4/5.x 没有 `setOutputSurface`：SurfaceView 销毁（切后台、视图重建）就释放解码器，回来要等手机发关键帧。
+- 没有节拍：抖动大时两帧可能落进同一次刷新、上一帧被挤掉（现象是偶发跳帧，不会花屏）。
+- 没有低延迟键调优（`KEY_LOW_LATENCY` 是 API 30），4.4 只靠 `KEY_PRIORITY`。
+- 4.4 上 `MediaCodec` 的同步 API 是 4.1 才有的，所以 minSdk 若再降到 14/15 这条路径也不成立。
+

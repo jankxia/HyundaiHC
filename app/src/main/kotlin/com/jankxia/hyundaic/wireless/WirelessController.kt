@@ -41,7 +41,8 @@ import com.jankxia.hyundaic.platform.bluetooth.BluetoothStatus
 import com.jankxia.hyundaic.platform.bluetooth.RfcommClient
 import com.jankxia.hyundaic.platform.bluetooth.RfcommServer
 import com.jankxia.hyundaic.platform.log.Log
-import com.jankxia.hyundaic.platform.media.VideoDecoder
+import com.jankxia.hyundaic.projection.VideoSink
+import com.jankxia.hyundaic.projection.VideoSinks
 import com.jankxia.hyundaic.platform.wifi.CarHotspot
 import com.jankxia.hyundaic.platform.wifi.CarHotspotSettings
 import com.jankxia.hyundaic.platform.wifi.LocalHotspotOwner
@@ -137,10 +138,10 @@ class WirelessController(
     /** 无线连接页看的状态。 */
     val state: StateFlow<WirelessUiState> = mutableState.asStateFlow()
 
-    private val mutableDecoder = MutableStateFlow<VideoDecoder?>(null)
+    private val mutableDecoder = MutableStateFlow<VideoSink?>(null)
 
     /** 当前连接的解码器（协商出投屏参数后才有），投屏页把画面接到它上面。 */
-    val decoder: StateFlow<VideoDecoder?> = mutableDecoder.asStateFlow()
+    val decoder: StateFlow<VideoSink?> = mutableDecoder.asStateFlow()
 
     private val mutableTouchResets = MutableStateFlow(0)
 
@@ -974,7 +975,7 @@ class WirelessController(
 
         /** 协议线程建、调度线程收尾时关。 */
         @Volatile
-        var videoDecoder: VideoDecoder? = null
+        var videoSink: VideoSink? = null
 
         @Volatile
         var inputReady = false
@@ -1064,22 +1065,21 @@ class WirelessController(
     }
 
     private fun prepareDecoder(current: Attempt, video: VideoParameters) {
-        val decoder = current.videoDecoder ?: VideoDecoder(DecoderListener(current.id)).also {
-            current.videoDecoder = it
+        val attemptId = current.id
+        // 安卓 6.0 起用异步回调的 VideoDecoder，4.1～5.1 用同步轮询的 SyncVideoDecoder，构造时按版本选。
+        val sink = current.videoSink ?: VideoSinks.create(
+            onVideoSizeChanged = { width, height ->
+                post { if (attempt?.id == attemptId) apply(WirelessSignal.VideoSize(width, height)) }
+            },
+            onDecoderUnavailable = { detail ->
+                post { if (attempt?.id == attemptId) apply(WirelessSignal.DecoderProblem(detail)) }
+            },
+        ).also {
+            current.videoSink = it
             current.sink.target = it
             mutableDecoder.value = it
         }
-        decoder.prepare(video.width, video.height, video.fps)
-    }
-
-    private inner class DecoderListener(private val attemptId: Int) : VideoDecoder.Listener {
-        override fun onVideoSizeChanged(width: Int, height: Int) {
-            post { if (attempt?.id == attemptId) apply(WirelessSignal.VideoSize(width, height)) }
-        }
-
-        override fun onDecoderUnavailable(detail: String) {
-            post { if (attempt?.id == attemptId) apply(WirelessSignal.DecoderProblem(detail)) }
-        }
+        sink.prepare(video.width, video.height, video.fps)
     }
 
     /** 执行器意外退出（不会有 Ended 事件）时也要能收尾：另开一个线程等它结束。 */
@@ -1123,8 +1123,8 @@ class WirelessController(
         // 2. 声音、解码器：执行器已经停了，不会再有回调。
         current.audio.close()
         current.sink.target = null
-        current.videoDecoder?.close()
-        current.videoDecoder = null
+        current.videoSink?.close()
+        current.videoSink = null
         mutableDecoder.value = null
         // 3. 平台资源兜底：正常收尾时会话已经逐个关过，这里什么都不剩；执行器意外退出时靠这一步撤掉服务记录、拆 WiFi 网络。
         current.executor.closeAll()

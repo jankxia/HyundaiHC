@@ -10,6 +10,8 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
+        // 设备上的自检（SyncVideoDecoderTest）：用系统编码器造一段 H.264，再看同步解码器能不能解出来。
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -27,4 +29,7 @@ dependencies {
     implementation(project(":core:nearby"))
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit)
+    // 同步解码器的设备自检。不上版本目录：只有这一处用。
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

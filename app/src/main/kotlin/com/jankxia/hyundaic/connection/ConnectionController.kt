@@ -32,6 +32,8 @@ import com.jankxia.hyundaic.platform.usb.UsbDescriber
 import com.jankxia.hyundaic.platform.usb.UsbStage
 import com.jankxia.hyundaic.platform.usb.WiredSession
 import com.jankxia.hyundaic.platform.usb.WiredEndReason
+import com.jankxia.hyundaic.projection.VideoSink
+import com.jankxia.hyundaic.projection.VideoSinks
 import com.jankxia.hyundaic.platform.usb.WiredSessionConfig
 import com.jankxia.hyundaic.platform.usb.WiredState
 import com.jankxia.hyundaic.platform.usb.WiredTimeouts
@@ -99,10 +101,10 @@ class ConnectionController(context: Context) {
     /** 界面看的连接状态。 */
     val state: StateFlow<ConnectionUiState> = mutableState.asStateFlow()
 
-    private val mutableDecoder = MutableStateFlow<VideoDecoder?>(null)
+    private val mutableDecoder = MutableStateFlow<VideoSink?>(null)
 
     /** 当前连接的解码器（协商出投屏参数后才有），投屏页把画面接到它上面。 */
-    val decoder: StateFlow<VideoDecoder?> = mutableDecoder.asStateFlow()
+    val decoder: StateFlow<VideoSink?> = mutableDecoder.asStateFlow()
 
     private val mutableTouchResets = MutableStateFlow(0)
 
@@ -415,7 +417,7 @@ class ConnectionController(context: Context) {
 
         /** 协议线程建、调度线程收尾时关。 */
         @Volatile
-        var videoDecoder: VideoDecoder? = null
+        var videoSink: VideoSink? = null
 
         /** 解码器选项（上屏节拍开关），开始连接时在调度线程上读一次设置。 */
         val videoOptions: VideoDecoder.Options = VideoPreferences(app).decoderOptions()
@@ -448,22 +450,22 @@ class ConnectionController(context: Context) {
     }
 
     private fun prepareDecoder(current: Attempt, video: VideoParameters) {
-        val decoder = current.videoDecoder ?: VideoDecoder(DecoderListener(current.id), current.videoOptions).also {
-            current.videoDecoder = it
+        val attemptId = current.id
+        // 安卓 6.0 起用异步回调的 VideoDecoder，4.1～5.1 用同步轮询的 SyncVideoDecoder，构造时按版本选。
+        val sink = current.videoSink ?: VideoSinks.create(
+            onVideoSizeChanged = { width, height ->
+                post { if (attempt?.id == attemptId) apply(ConnectionSignal.VideoSize(width, height)) }
+            },
+            onDecoderUnavailable = { detail ->
+                post { if (attempt?.id == attemptId) apply(ConnectionSignal.DecoderProblem(detail)) }
+            },
+            options = current.videoOptions,
+        ).also {
+            current.videoSink = it
             current.sink.target = it
             mutableDecoder.value = it
         }
-        decoder.prepare(video.width, video.height, video.fps)
-    }
-
-    private inner class DecoderListener(private val attemptId: Int) : VideoDecoder.Listener {
-        override fun onVideoSizeChanged(width: Int, height: Int) {
-            post { if (attempt?.id == attemptId) apply(ConnectionSignal.VideoSize(width, height)) }
-        }
-
-        override fun onDecoderUnavailable(detail: String) {
-            post { if (attempt?.id == attemptId) apply(ConnectionSignal.DecoderProblem(detail)) }
-        }
+        sink.prepare(video.width, video.height, video.fps)
     }
 
     private fun onSessionEvent(current: Attempt, event: SessionEvent) {
@@ -601,8 +603,8 @@ class ConnectionController(context: Context) {
         current.mic.close()
         // 2. 解码器：执行器已经停了，不会再有帧送进来。
         current.sink.target = null
-        current.videoDecoder?.close()
-        current.videoDecoder = null
+        current.videoSink?.close()
+        current.videoSink = null
         mutableDecoder.value = null
         // 3. 有线链路：稍等一下，让 TEARDOWN 和关连接的包经 TUN、USB 发到手机，再停。
         val wired = current.wired

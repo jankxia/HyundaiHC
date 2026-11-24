@@ -16,7 +16,6 @@ import android.widget.FrameLayout
 import com.jankxia.hyundaic.core.hisight.HiSightInput
 import com.jankxia.hyundaic.platform.media.DisplayRefreshRate
 import com.jankxia.hyundaic.platform.media.TouchMapper
-import com.jankxia.hyundaic.platform.media.VideoDecoder
 import com.jankxia.hyundaic.platform.media.VideoViewport
 import com.jankxia.hyundaic.platform.media.onMotionEvent
 
@@ -66,7 +65,7 @@ class ProjectionView @JvmOverloads constructor(
     private val touchMapper = TouchMapper(edgeSlopPx = EDGE_SLOP_DP * resources.displayMetrics.density)
     private var surface: Surface? = null
     private var surfaceListener: SurfaceListener? = null
-    private var attachedDecoder: VideoDecoder? = null
+    private var attachedDecoder: VideoSink? = null
     private var videoWidth = 0
     private var videoHeight = 0
     private var barsHidden = false
@@ -86,7 +85,7 @@ class ProjectionView @JvmOverloads constructor(
     }
 
     /** 把画面交给 [decoder]（null 解绑）。换解码器时旧的先收到 null。主线程调用，重复传同一个解码器没有影响。 */
-    fun attachDecoder(decoder: VideoDecoder?) {
+    fun attachDecoder(decoder: VideoSink?) {
         if (decoder === attachedDecoder) return
         replaceSurfaceListener(
             decoder?.let { d ->
