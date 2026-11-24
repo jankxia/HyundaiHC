@@ -1,8 +1,8 @@
 [versions]
-# 安卓模块统一的 SDK 版本。minSdk 23 = 安卓 6.0；无线等功能在运行时按系统版本判断是否可用。
+# 安卓模块统一的 SDK 版本。minSdk 19 = 安卓 4.4；无线等功能在运行时按系统版本判断是否可用。
 compileSdk = "36"
 targetSdk = "36"
-minSdk = "23"
+minSdk = "19"
 agp = "8.11.1"
 kotlin = "2.1.20"
 coroutines = "1.10.2"
@@ -15,8 +15,8 @@ bouncycastle = "1.79"
 # 无线连接页的二维码（只用编码部分）。
 zxing = "3.5.3"
 animalsniffer = "2.0.1"
-# 核心模块要能跑在安卓 6.0 上：用安卓 API 23 的签名检查有没有误用新版 JDK 接口。
-androidApi23Signature = "6.0_r3"
+# 核心模块要能跑在安卓 4.4（API 19）上：用安卓 API 19 的签名检查有没有误用新版 JDK 接口。
+androidApi19Signature = "4.4.2_r4"
 
 [libraries]
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -32,7 +32,7 @@ androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "u
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
-android-api23-signature = { group = "net.sf.androidscents.signature", name = "android-api-level-23", version.ref = "androidApi23Signature" }
+android-api19-signature = { group = "net.sf.androidscents.signature", name = "android-api-level-19", version.ref = "androidApi19Signature" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

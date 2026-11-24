@@ -15,33 +15,33 @@ plugins {
 val catalog = libs
 
 subprojects {
-    // 纯 JVM 模块（协议核心）：产出 Java 11 字节码，测试用 JUnit 4。
+    // 纯 JVM 模块（协议核心）：产出 Java 8 字节码，测试用 JUnit 4。
     plugins.withId("org.jetbrains.kotlin.jvm") {
         extensions.configure<JavaPluginExtension> {
-            sourceCompatibility = JavaVersion.VERSION_11
-            targetCompatibility = JavaVersion.VERSION_11
+            sourceCompatibility = JavaVersion.VERSION_1_8
+            targetCompatibility = JavaVersion.VERSION_1_8
         }
         extensions.configure<KotlinJvmProjectExtension> {
-            compilerOptions.jvmTarget.set(JvmTarget.JVM_11)
+            compilerOptions.jvmTarget.set(JvmTarget.JVM_1_8)
         }
         tasks.withType<Test>().configureEach { useJUnit() }
         dependencies { "testImplementation"(catalog.kotlin.test) }
     }
 
-    // 协议核心要跑在安卓 6.0（API 23）的车机上：用安卓 API 23 签名检查主代码，
+    // 协议核心要跑在安卓 4.4（API 19）的车机上：用安卓 API 19 签名检查主代码，
     // 防止误用老安卓上没有的 JDK 接口（例如 java.util.Base64、java.time、HexFormat）。
     plugins.withId("ru.vyarus.animalsniffer") {
         extensions.configure<AnimalSnifferExtension> {
             sourceSets = listOf(the<SourceSetContainer>()["main"])
         }
         dependencies {
-            "signature"(variantOf(catalog.android.api23.signature) { artifactType("signature") })
+            "signature"(variantOf(catalog.android.api19.signature) { artifactType("signature") })
         }
     }
 
     plugins.withId("org.jetbrains.kotlin.android") {
         extensions.configure<KotlinAndroidProjectExtension> {
-            compilerOptions.jvmTarget.set(JvmTarget.JVM_11)
+            compilerOptions.jvmTarget.set(JvmTarget.JVM_1_8)
         }
     }
 }
