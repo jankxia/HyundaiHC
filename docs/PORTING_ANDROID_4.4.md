@@ -187,3 +187,36 @@
 - **雷电 LDPlayer 9.5.42**：唯一实例 `emulator-5554` 为安卓 9 / API 28；`ldconsole add` 只有 `--name`，`modify` 只能改分辨率/CPU/内存/机型/IMEI 等，**没有安卓版本参数**，新建实例同样内置安卓 9 镜像；安装目录内无 4.x 系统镜像。
 - 现代 Android Emulator 官方也不提供、不启动 API 14/19 镜像；4.x 镜像只存在于很老的模拟器版本。
 - **结论**：在完成 4.4 降级改造（minSdk 降到 19、移除 Compose、依赖降版等，见阶段 1–4）之前，无法在任何 4.x 模拟器上安装测试；现阶段只能在安卓 9 基线做编译/启动回归。降级改造完成后，再评估用老版本模拟器或真机验证 API 19 兼容性。
+
+---
+
+## 9. 阶段执行记录（2026-11-24）
+
+### 阶段 1：工具链降版 —— 已完成（commit `917a97b`，已推送）
+
+- `minSdk` 23 → **19**；`jvmTarget` / `sourceCompatibility` / `targetCompatibility` Java 11 → **1.8**（core JVM、android 模块、btprobe 同步）。
+- animalsniffer 签名 `android-api-level-23:6.0_r3` → **`android-api-level-19:4.4.2_r4`**。
+- 验证结果：`:core:session:build`（含全部 core 依赖、API19 签名检查、JUnit 单测）**BUILD SUCCESSFUL**；`:platform:assembleDebug` **BUILD SUCCESSFUL**（仅 LocalHotspot 废弃字段 warning，无线裁剪留阶段 4）。
+- **当前中间态**：`app` 模块在 minSdk 19 下 manifest 合并被 `material3-android:1.3.2`（声明 minSdk 21）拒绝，暂不可编译；core / platform 可编。这是阶段 2/3 打通前的预期中间态。
+
+### 阶段 2：依赖裁剪与降版 —— 待办（已核查 import）
+
+app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
+
+| 依赖 | 现状 | 处置 |
+| --- | --- | --- |
+| Compose BOM / activity-compose / ui / material3 / ui-tooling(-preview) | minSdk 21，硬下限 | **整包移除**（app 与 btprobe）；外壳 UI 阶段 3 用传统 View 重写 |
+| `androidx.core:core-ktx:1.16.0` | 现代 AndroidX 默认 minSdk 21 | 降到仍支持 API 19 的老线（官方：core 1.13.0 起 minSdk 提到 19；1.12.0 及更早更低，候选 1.9.0–1.12.0，**引入时以 AAR manifest 实测 minSdk 为准**）；所用 `ContextCompat`、`core.content.edit`、`IntentCompat`、`core.net.toUri`、`WindowCompat`、`WindowInsetsCompat/ControllerCompat`、`NotificationCompat/ManagerCompat/ChannelCompat`、`ServiceCompat`、`ViewCompat` 需在所选版本复核齐备，缺哪个改 framework 自写薄封装 |
+| `androidx.activity:activity-compose:1.10.1`（ComponentActivity、ActivityResultContracts） | minSdk 21 | **移除**；`MainActivity` 改继承 `android.app.Activity`；运行时权限改 `onRequestPermissionsResult`；VPN 授权改 `startActivityForResult` |
+| `kotlinx-coroutines-core:1.10.2` | core JVM 编译已过 | 暂留；老 ART 上 StateFlow/调度实测，出问题再降 1.6.x |
+| `kotlinx-serialization-json:1.8.1` | 纯 Kotlin | 暂留；必要时降 1.5.x |
+| `bcprov-jdk18on:1.79` | Java8+ 变体 | 评估换 `bcprov-jdk15on`；裁剪仅需算法；盯 dex 方法数 |
+| `zxing-core:3.5.3` | 纯 Java | 保留 |
+| multidex | 4.4 Dalvik 单 dex 64K | 开 multidex（minSdk<21 需 androidx multidex 支持库），真机验证二次 dex 加载与启动性能 |
+
+### 阶段 3：外壳 UI 传统 View 重写 —— 待办（规模已盘点）
+
+- 待重写：`app/.../ui/` 下 **22 个 Compose 文件、3193 行**（Widgets 502、HomeScreen 297、WirelessScreen 278、AudioSettings 243、BootStart 226 等）。
+- 可原样复用：`app/` 下 **56 个非 UI 业务文件**——`connection/`、`wireless/`、`settings/`、`audio/`、`diagnostics/`、`startup/`、`projection/ProjectionView/Surface`、`trust/` 等；状态层 `ConnectionUiState` / `WirelessUiState` 是纯 Kotlin data/sealed，不依赖 Compose。
+- 三屏对接：首页（有线/无线两栏 + 开始/停止/重试/重置信任 + 二维码入口）、设置页（各分组开关/选项）、全屏投屏页（复用 `ProjectionView` 的 SurfaceView）。View 侧订阅 `controller.state` / `wireless.state` StateFlow，在主线程刷新文本、按钮与可见性；阶段 4 再处理平台 API。
+- 投屏容器 `ProjectionSurface.kt` 当前用 Compose `AndroidView` 包 SurfaceView，重写时直接用传统 `SurfaceView` 加入布局。
