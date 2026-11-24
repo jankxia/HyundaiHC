@@ -280,3 +280,23 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 - **P6 BLE 外设三件（裁剪）**：`BleBeacon`（`startAdvertising` API21）、`BeaconGattServer`、`LePairingPeripheral`（GATT 服务端 + 广播 API21）。4.4 只支持 BLE 中心角色，外设广播/GATT 服务端不可用，做空实现或归档。
 - **P7 本地热点（裁剪）**：`LocalHotspot.startLocalOnlyHotspot`（API26）；`app/wireless` 随 P6/P7 一并裁剪，4.4 构建只留有线路径。
 - 附：animalsniffer 签名检查只覆盖 core 纯 JVM 模块；挂到 Android 模块会因取不到 Java SourceSet 报错（插件对 AGP 支持有限），platform/app 的高版本 API 目前靠人工 grep + 版本分支核对。
+
+### 阶段 4：无线通道判定修正（2026-11-24，推送 6d95eae）
+
+**结论修正**：4.4 不是"不能无线"，是"不能由车机自动开热点"。无线拆三段看：
+
+- **蓝牙**：二维码里是车机**经典蓝牙公共地址**（`PairingQrCode` 的 `mac=`），手机扫码后走 RFCOMM 直连车机，API 5 起就有，4.4 可用。BLE 广播只在"被动等手机回连"才发（`beaconPlan` 里 `kind != Kind.AUTO` 直接返回 null），该模式已不自动进入，随 P6 裁掉即可。
+- **数据通道**三条，`WirelessNetworkPlan.channelSupported` 改成按通道判定：
+  - 车机开本地热点 `startLocalOnlyHotspot`：API 26 ❌
+  - 车机自带热点（车主手动开车机热点，`CarHotspot` 只读自己热点网卡地址 + 车主填的 SSID/密码）：任何版本 ✅ **4.4 可走**
+  - WiFi 直连组 `WifiDirectGroupOwner`：API 14 ✅ 4.4 支持（代码标记"试验"，手机侧认不认待真机）
+- 原 `begin()` 里 `hotspotSupported(SDK_INT)` 无条件拦死，连上述两条可用的分支都不试；已改为提前定通道再判。旧系统且未配车机热点时返回新 notice `OldSystemNeedsCarHotspot`。`reconnectConditions()` 的自动回连判定同步改。
+
+**配套（骨架最小可用）**
+- 无线入口：开始/停止按钮、`ImageView` 二维码（`ui/QrCodes.kt`，ZXing 编码到 Bitmap，不引 Compose）、连接码与原因文本。
+- 车机热点配置：SSID / 密码 / 5GHz / 启用，存 `WirelessPreferences`（`carHotspot`、`carHotspotName`、`carHotspotPassword`、`carHotspotFiveGhz`），勾启用时关掉 `wifiDirect`（二选一）。
+- 单测 `WirelessNetworkPlanTest`：19+车机热点=true、19+直连=true、19+都没有=false、26/28 无需替代=true。
+
+**车机操作顺序（真机验证用）**：车机通电 → 在车机设置里把 WiFi 开成**热点/AP 模式**（不是普通 WiFi 开关）→ 启动 HyundaiHC → 填热点名称密码并勾启用 → 点"开始无线连接" → 手机扫码。
+
+**仍阻塞真机验证的前置**：`identity` 真实参数仍为占位（`IdentityMissing`，模拟器点"开始无线"已确认卡在这一步），无真实参数出不了二维码。
