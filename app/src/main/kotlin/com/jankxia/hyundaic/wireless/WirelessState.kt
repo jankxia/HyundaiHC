@@ -97,6 +97,14 @@ sealed class WirelessNotice {
     }
 
     /**
+     * 车机系统低于安卓 8.0，开不了本地热点，而且还没配置车机自带热点（也没开 WiFi 直连）：
+     * 要么车主先在车机设置里打开热点、到这里填名称和密码，要么改用数据线。
+     */
+    object OldSystemNeedsCarHotspot : WirelessNotice() {
+        override fun toString() = "OldSystemNeedsCarHotspot"
+    }
+
+    /**
      * 缺运行时权限。[permanently]：系统不再弹框（用户选了不再询问），只能去系统设置里开；
      * [approximateOnly]：安卓 12、12L 上用户只给了大致位置，开热点要精确位置。
      */

@@ -423,9 +423,16 @@ class WirelessController(
         userStopped = false
         if (wirelessPrefs.wiredOnly) return blocked(kind, WirelessNotice.WiredOnly, AutoHold.WIRED_ONLY)
         if (wiredActive()) return blocked(kind, WirelessNotice.WiredActive, AutoHold.WIRED_ACTIVE)
-        // 本地热点安卓 8.0 起才有，更早的车机用不了无线。不要求车机 WiFi 开着：开热点时单射频车机自己的 WiFi 本来就会断。
-        if (!WirelessNetworkPlan.hotspotSupported(Build.VERSION.SDK_INT)) {
-            return blocked(kind, WirelessNotice.HotspotUnsupported, AutoHold.HOTSPOT_UNSUPPORTED)
+        // 数据通道先定下来：车机自带热点（车主开）、WiFi 直连组都不要求安卓 8.0；
+        // 只有「车机自己开本地热点」这条路才是 API 26 起。旧系统（安卓 4.4）必须走前两条。
+        val carHotspot = wirelessPrefs.carHotspotSettings()
+        if (wirelessPrefs.carHotspot && carHotspot == null) {
+            return blocked(kind, WirelessNotice.StartFailed(CAR_HOTSPOT_MISSING), AutoHold.START_FAILED)
+        }
+        val directGroup = carHotspot == null && wirelessPrefs.usesWifiDirect
+        if (!WirelessNetworkPlan.channelSupported(Build.VERSION.SDK_INT, carHotspot != null, directGroup)) {
+            // 走到这里说明：本地热点不可用（安卓 8.0 以下），且没配车机自带热点、也没开 WiFi 直连。
+            return blocked(kind, WirelessNotice.OldSystemNeedsCarHotspot, AutoHold.HOTSPOT_UNSUPPORTED)
         }
         val identity = when (val loaded = IdentityLoader.load(app)) {
             is IdentityLoader.Result.Loaded -> loaded.assets
@@ -505,12 +512,7 @@ class WirelessController(
             return blocked(kind, WirelessNotice.StartFailed(FOREGROUND_FAILED), AutoHold.FOREGROUND_UNAVAILABLE)
         }
 
-        val carHotspot = wirelessPrefs.carHotspotSettings()
-        if (wirelessPrefs.carHotspot && carHotspot == null) {
-            return blocked(kind, WirelessNotice.StartFailed(CAR_HOTSPOT_MISSING), AutoHold.START_FAILED)
-        }
         cancelAutoRetry()
-        val directGroup = carHotspot == null && wirelessPrefs.usesWifiDirect
         val current = Attempt(
             ++attemptCounter, kind, config, adapter, identity.host, beacon, bluetoothTrigger, reconnect, resumeWiredAfter, directGroup,
             carHotspot,
@@ -776,7 +778,10 @@ class WirelessController(
             enabled = forDial || wirelessPrefs.connectOnBluetooth,
             wiredOnly = wirelessPrefs.wiredOnly,
             wiredActive = !forDial && wiredActive(),
-            hotspotSupported = WirelessNetworkPlan.hotspotSupported(sdk),
+            // 和 begin() 一致：车机自带热点、WiFi 直连组不要求安卓 8.0。
+            hotspotSupported = WirelessNetworkPlan.channelSupported(
+                sdk, wirelessPrefs.carHotspotSettings() != null, wirelessPrefs.usesWifiDirect,
+            ),
             identityLoaded = IdentityLoader.load(app) is IdentityLoader.Result.Loaded,
             bluetoothAddressKnown = address != null,
             bluetoothOn = BluetoothStatus.state(adapter) == BluetoothStatus.State.ON,

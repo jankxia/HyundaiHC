@@ -13,6 +13,9 @@ import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -26,6 +29,8 @@ import com.jankxia.hyundaic.platform.log.Log
 import com.jankxia.hyundaic.platform.net.VpnConsent
 import com.jankxia.hyundaic.settings.AppSettings
 import com.jankxia.hyundaic.settings.AudioPreferences
+import com.jankxia.hyundaic.settings.WirelessPreferences
+import com.jankxia.hyundaic.ui.QrCodes
 import com.jankxia.hyundaic.startup.BootStart
 import com.jankxia.hyundaic.startup.BootStartPolicy
 import com.jankxia.hyundaic.wireless.WirelessController
@@ -55,6 +60,15 @@ class MainActivity : Activity() {
     private lateinit var retryBtn: Button
     private lateinit var grantVpnBtn: Button
     private lateinit var resetTrustBtn: Button
+    private lateinit var hotspotNameInput: EditText
+    private lateinit var hotspotPassInput: EditText
+    private lateinit var hotspotEnable: CheckBox
+    private lateinit var hotspotFiveGhz: CheckBox
+    private lateinit var wirelessStatusView: TextView
+    private lateinit var qrView: ImageView
+    private var lastQrContent: String? = null
+    private lateinit var startWirelessBtn: Button
+    private lateinit var stopWirelessBtn: Button
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val poll = object : Runnable {
@@ -157,7 +171,95 @@ class MainActivity : Activity() {
         root.addView(noticeView)
         root.addView(pinView)
         root.addView(buttons)
+        root.addView(buildWirelessSection(pad))
+        root.addView(buildHotspotConfig(pad))
         setContentView(root)
+        loadHotspotConfig()
+    }
+
+    /** 最小无线入口：开始/停止 + 状态行（二维码内容先以文本显示，扫码图待阶段 3 补回）。 */
+    private fun buildWirelessSection(pad: Int): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, pad, 0, 0)
+        }
+        box.addView(TextView(this).apply { text = "无线连接"; textSize = 16f })
+        wirelessStatusView = TextView(this).apply { textSize = 14f }
+        qrView = ImageView(this).apply {
+            visibility = View.GONE
+            setPadding(0, pad / 2, 0, 0)
+            setBackgroundColor(0xFFFFFFFF.toInt())
+        }
+        startWirelessBtn = Button(this).apply {
+            text = "开始无线连接（出二维码）"
+            setOnClickListener { wireless.start() }
+        }
+        stopWirelessBtn = Button(this).apply {
+            text = "停止无线"
+            setOnClickListener { wireless.stop() }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(startWirelessBtn)
+            addView(stopWirelessBtn)
+        }
+        box.addView(wirelessStatusView)
+        box.addView(qrView)
+        box.addView(row)
+        return box
+    }
+
+    /**
+     * 车机自带热点的最小配置入口（安卓 8.0 以下走这条路）：车主先在车机设置里把 WiFi 开成热点，
+     * 再把热点名称、密码填到这里、勾上启用。临时骨架用，完整设置页待阶段 3 补回。
+     */
+    private fun buildHotspotConfig(pad: Int): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, pad, 0, 0)
+        }
+        box.addView(TextView(this).apply {
+            text = "车机自带热点（安卓 8 以下走这条：先在车机设置里打开热点）"
+            textSize = 14f
+        })
+        hotspotNameInput = EditText(this).apply { hint = "热点名称（SSID）"; textSize = 14f }
+        hotspotPassInput = EditText(this).apply { hint = "热点密码"; textSize = 14f }
+        hotspotFiveGhz = CheckBox(this).apply { text = "热点开在 5 GHz"; textSize = 14f }
+        hotspotEnable = CheckBox(this).apply { text = "启用（不开本地热点，用车机这个热点）"; textSize = 14f }
+        box.addView(hotspotNameInput)
+        box.addView(hotspotPassInput)
+        box.addView(hotspotFiveGhz)
+        box.addView(hotspotEnable)
+        box.addView(Button(this).apply {
+            text = "保存热点配置"
+            setOnClickListener { saveHotspotConfig() }
+        })
+        return box
+    }
+
+    private fun loadHotspotConfig() {
+        val p = WirelessPreferences(this)
+        hotspotNameInput.setText(p.carHotspotName)
+        hotspotPassInput.setText(p.carHotspotPassword)
+        hotspotFiveGhz.isChecked = p.carHotspotFiveGhz
+        hotspotEnable.isChecked = p.carHotspot
+    }
+
+    private fun saveHotspotConfig() {
+        val p = WirelessPreferences(this)
+        val name = hotspotNameInput.text.toString().trim()
+        val pass = hotspotPassInput.text.toString().trim()
+        if (hotspotEnable.isChecked && (name.isEmpty() || pass.isEmpty())) {
+            Toast.makeText(this, "勾了启用就要填热点名称和密码", Toast.LENGTH_SHORT).show()
+            return
+        }
+        p.carHotspotName = name
+        p.carHotspotPassword = pass
+        p.carHotspotFiveGhz = hotspotFiveGhz.isChecked
+        p.carHotspot = hotspotEnable.isChecked
+        // 两种「不开本地热点」的方式二选一：选了车机自带热点就关掉 WiFi 直连。
+        if (p.carHotspot) p.wifiDirect = false
+        Toast.makeText(this, "已保存，接着点开始无线连接", Toast.LENGTH_SHORT).show()
     }
 
     /** 按当前连接状态刷新骨架上的文本与按钮；完整三屏与无线界面待后续阶段补回。 */
@@ -174,6 +276,32 @@ class MainActivity : Activity() {
         retryBtn.visibility = if (s.phase == com.jankxia.hyundaic.connection.Phase.REPLUG_REQUIRED) View.VISIBLE else View.GONE
         grantVpnBtn.visibility = if (idle && s.notice is Notice.VpnConsentRequired) View.VISIBLE else View.GONE
         resetTrustBtn.visibility = if (idle && s.notice is Notice.TrustStoreCorrupt) View.VISIBLE else View.GONE
+
+        val w = wireless.state.value
+        wirelessStatusView.text = buildString {
+            append("无线阶段：").append(w.phase)
+            w.step?.let { append("　步骤：").append(it) }
+            if (w.attempt > 0) append("　第 ").append(w.attempt).append(" 次")
+            w.notice?.let { append("\n原因：").append(it) }
+            w.pinCode?.let { append("\n连接码：").append(it) }
+            w.qrCode?.let { append("\n二维码内容：").append(it) }
+        }
+        startWirelessBtn.isEnabled = !w.active && idle
+        stopWirelessBtn.isEnabled = w.active
+
+        // 二维码只在内容变化时重编（轮询每 500ms 跑一次，重编一张图没必要）。
+        if (w.qrCode != lastQrContent) {
+            lastQrContent = w.qrCode
+            val qr = w.qrCode
+            if (qr == null) {
+                qrView.visibility = View.GONE
+                qrView.setImageDrawable(null)
+            } else {
+                val px = (240 * resources.displayMetrics.density).toInt()
+                qrView.setImageBitmap(QrCodes.bitmap(qr, px))
+                qrView.visibility = View.VISIBLE
+            }
+        }
     }
 
     // ---------------------------------------------------------------- 启动流程
