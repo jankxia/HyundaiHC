@@ -47,6 +47,36 @@ object PcmTrack {
             val why = byNumber.exceptionOrNull()
             rejection = "声道 $choice 号被系统拒绝（${why?.javaClass?.simpleName}：${why?.message}），改按用途建"
         }
+        // 安卓 5.0（API 21）起才有 AudioAttributes / AudioTrack.Builder / AudioFormat.Builder；
+        // 更低版本（含 4.4）走老构造，按流类型建轨。Builder 路径隔离在独立函数里，老系统不加载这些类。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return buildWithAttributes(usage, sampleRate, channelMask, bufferBytes, lowLatency, rejection)
+        }
+        val track = try {
+            @Suppress("DEPRECATION")
+            AudioTrack(
+                usage.streamType(), sampleRate, channelMask,
+                AudioFormat.ENCODING_PCM_16BIT, bufferBytes, AudioTrack.MODE_STREAM,
+            )
+        } catch (e: Exception) {
+            throw IllegalStateException("AudioTrack 老接口建轨失败（${e.javaClass.simpleName}：${e.message}）")
+        }
+        if (track.state != AudioTrack.STATE_INITIALIZED) {
+            track.release()
+            throw IllegalStateException("AudioTrack 没有初始化成功")
+        }
+        return Built(track, rejection ?: "", lowLatencyRequested = false, streamRejected = rejection != null)
+    }
+
+    /** API 21+：按 AudioAttributes 建轨（现有 Builder 路径）。 */
+    private fun buildWithAttributes(
+        usage: AudioUsage,
+        sampleRate: Int,
+        channelMask: Int,
+        bufferBytes: Int,
+        lowLatency: Boolean,
+        rejection: String?,
+    ): Built {
         val attrs = usage.trackAttributes()
         val builder = AudioTrack.Builder()
             .setAudioAttributes(attrs.attributes)

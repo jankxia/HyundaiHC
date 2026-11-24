@@ -259,3 +259,24 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 **阶段 3 遗留（后续补回）**
 - 设置页 11 个分组开关/选项；全屏投屏页 SurfaceView 接线（复用底层 `projection/ProjectionView.kt`）；无线界面（4.4 裁剪，先占位）；首页 phase/notice/step 文案映射——原 `StatusTexts.kt`/`WirelessTexts.kt` 在已归档的 Compose 文件里，需抽成纯 Kotlin 供 View 复用；当前骨架仅显示枚举 `toString` 与原始 notice。
 - `:app:assembleRelease` **BUILD SUCCESSFUL**（未开 minify，未配签名时出未签名包）；release 源集已清空，空实现钩子在 main，release 编译通过。
+
+### 阶段 4：平台 API 降级 —— 本轮进展（2026-11-24）
+
+> 说明：本机无 API19 真机/镜像，本轮改动只做编译期 + 安卓 9 模拟器启动回归；4.4 运行时行为仍待阶段 5 真机核实。
+
+**本轮已改**
+- **P2 音频轨老构造**（`platform/media/PcmTrack.kt`）：按用途建轨的 `AudioTrack.Builder`/`AudioFormat.Builder`（API21）隔离到 `buildWithAttributes()`；SDK <21 走老构造 `AudioTrack(streamType, sampleRate, channelMask, ENCODING_PCM_16BIT, bufferBytes, MODE_STREAM)`。`AudioUsage` 新增纯 Kotlin `streamType(): Int`（CALL→VOICE_CALL、RINGTONE→RING、其余→MUSIC），`AudioFocusController` 焦点老接口复用同一映射。
+- **P4 运行时权限直通**（`app/MainActivity.kt`）：框架 `Activity.requestPermissions` 是 API23；`askNextPermission()` 开头判断 `SDK_INT < M` 直接 `continueStart()`，4.4 安装即授予、不调该方法。其余 `checkSelfPermission` 均走 `ContextCompat`（<23 返回 GRANTED，安全）。
+- **P10 VPN Builder 版本分支**（`platform/net/WiredVpnService.kt`）：`addAllowedApplication`/`allowFamily(AF_INET6)`/`setBlocking` 均 API21，包进 `SDK_INT >= LOLLIPOP` 分支；4.4 跳过——TUN 对本应用生效这点在车机单应用场景放宽，IPv6 不主动放行（本就只配 IPv4 路由）。
+
+**核查通过、无需改**
+- **P3 通知渠道**：`NotificationChannelCompat`/`NotificationManagerCompat` 内部 <O 空操作；**P5 前台服务**：`ServiceCompat.startForeground` + `foregroundType()` 已做 Q 分支，<Q 传 0。
+- `MicCapture` 用 `AudioRecord` 老构造（API5+）；`MicAacEncoder` 用同步 `dequeueInputBuffer/dequeueOutputBuffer`（非异步回调）；`net/usb` 骨架为老接口。
+- JDK 层扫描：无 `java.time`/`java.util.function`/`java.util.stream`/`java.nio.file`/`java.util.Base64`/`HexFormat` 误用（出现的 `.toList()` 均为 Kotlin stdlib 扩展，兼容 19）。
+
+**待改（后续轮次，按风险/体量排序）**
+- **P1 视频解码器同步化（最大块）**：`VideoDecoder` 深度依赖 `MediaCodec.setCallback(CodecCallback, handler)` 异步回调（API21）——空闲输入缓冲由 `onInputBufferAvailable` 推进 `freeInputs`，出帧/格式变化/报错由 `onOutputBufferAvailable/onOutputFormatChanged/onError` 驱动，pacer、重放、统计都挂在回调上。需改解码线程轮询 `dequeueInputBuffer`/`dequeueOutputBuffer`，识别 `INFO_OUTPUT_FORMAT_CHANGED`，错误走异常/返回码。另有 `setOnFrameRenderedListener`（API23，仅统计，可版本跳过）、`ImageFormat.PRIVATE`（API21，占位 Surface 需换 RGB_565 或版本分支）。
+- **P12 媒体键会话**：`MediaKeySession` 用 `MediaSession`/`PlaybackState`（API21），4.4 类不存在。替代为老 `RemoteControlClient`（API14，已弃用），或 4.4 裁剪会话、方向盘键仅走 Activity `onKeyDown`（`MediaKeys.onWindowKey` 已有）。
+- **P6 BLE 外设三件（裁剪）**：`BleBeacon`（`startAdvertising` API21）、`BeaconGattServer`、`LePairingPeripheral`（GATT 服务端 + 广播 API21）。4.4 只支持 BLE 中心角色，外设广播/GATT 服务端不可用，做空实现或归档。
+- **P7 本地热点（裁剪）**：`LocalHotspot.startLocalOnlyHotspot`（API26）；`app/wireless` 随 P6/P7 一并裁剪，4.4 构建只留有线路径。
+- 附：animalsniffer 签名检查只覆盖 core 纯 JVM 模块；挂到 Android 模块会因取不到 Java SourceSet 报错（插件对 AGP 支持有限），platform/app 的高版本 API 目前靠人工 grep + 版本分支核对。

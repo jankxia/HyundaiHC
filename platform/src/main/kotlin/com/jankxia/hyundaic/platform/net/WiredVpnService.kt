@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.system.OsConstants
@@ -18,6 +19,7 @@ import java.net.Inet4Address
  * - 只加手机所在网段这一条路由，不加默认路由，不设 DNS；
  * - 只对本应用生效（`addAllowedApplication`），车机上别的应用和系统自己的网络完全不经过它；
  * - 本应用的 IPv6 照常走原来的网络（`allowFamily`）：只配了 IPv4 的 VPN 默认会把 IPv6 拦掉。
+ * 后两项（addAllowedApplication / allowFamily / setBlocking）API 21 才有，4.4 上跳过，见 [establishTun]。
  *
  * 由 [VpnTunnel] 在同进程内绑定拉起，不用 startService：安卓 8.0 起应用在后台时 startService 会被拒，绑定不受限。
  * 解除绑定、关掉 TUN 之后服务随之销毁，不会常驻。
@@ -53,9 +55,13 @@ class WiredVpnService : VpnService() {
             .setMtu(spec.mtu)
             .addAddress(spec.address, spec.prefixLength)
             .addRoute(spec.network, spec.prefixLength)
-            .addAllowedApplication(packageName)
-            .allowFamily(OsConstants.AF_INET6)
-            .setBlocking(false)
+        // addAllowedApplication / allowFamily / setBlocking 都是 API 21 才有的；4.4 跳过：
+        // TUN 对本应用生效这点在车机单应用场景下可放宽，IPv6 不主动放行（本就只配 IPv4 路由）。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            builder.addAllowedApplication(packageName)
+            builder.allowFamily(OsConstants.AF_INET6)
+            builder.setBlocking(false)
+        }
         spec.configureIntent?.let { builder.setConfigureIntent(it) }
         return builder.establish()
     }

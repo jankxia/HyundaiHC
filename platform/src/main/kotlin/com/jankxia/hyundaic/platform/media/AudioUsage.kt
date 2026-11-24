@@ -2,6 +2,7 @@ package com.jankxia.hyundaic.platform.media
 
 import android.annotation.SuppressLint
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.os.Build
 
 /**
@@ -79,4 +80,14 @@ fun AudioUsage.attributes(): AudioAttributes {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
     }
     return builder.build()
+}
+
+/**
+ * 老接口（API <21，没有 AudioAttributes）按流类型建音轨、申请焦点用：用途映射到 streamType。
+ * 纯 int 映射，不碰高版本类，API 19 可直接调用。
+ */
+fun AudioUsage.streamType(): Int = when (this) {
+    AudioUsage.CALL -> AudioManager.STREAM_VOICE_CALL
+    AudioUsage.RINGTONE -> AudioManager.STREAM_RING
+    else -> AudioManager.STREAM_MUSIC
 }

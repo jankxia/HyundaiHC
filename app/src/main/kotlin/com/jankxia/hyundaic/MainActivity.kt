@@ -217,6 +217,11 @@ class MainActivity : Activity() {
     /** 开始前的运行时权限按顺序问，每样只自动问一次；问完（同意与否）接着 [continueStart]。 */
     private fun askNextPermission() {
         if (pendingStart == null) return
+        // API 23 以下没有运行时权限机制：安装即授予，框架也没有 requestPermissions 方法，直接走流程。
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            continueStart()
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !settings.notificationPermissionAsked &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {

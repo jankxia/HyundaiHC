@@ -146,7 +146,7 @@ class AudioFocusController(context: Context, private val listener: Listener) : C
                 manager.requestAudioFocus(request)
             } else {
                 @Suppress("DEPRECATION")
-                manager.requestAudioFocus(listenerFor(usage), streamOf(usage), androidGain)
+                manager.requestAudioFocus(listenerFor(usage), usage.streamType(), androidGain)
             }
         } catch (e: RuntimeException) {
             listener.onLog("音频焦点：申请${usage.label}出错（${e.javaClass.simpleName}：${e.message}），按被拒绝处理")
@@ -187,12 +187,6 @@ class AudioFocusController(context: Context, private val listener: Listener) : C
     private fun now(): Long = SystemClock.elapsedRealtime()
 
     private companion object {
-        fun streamOf(usage: AudioUsage): Int = when (usage) {
-            AudioUsage.CALL -> AudioManager.STREAM_VOICE_CALL
-            AudioUsage.RINGTONE -> AudioManager.STREAM_RING
-            else -> AudioManager.STREAM_MUSIC
-        }
-
         fun changeOf(change: Int): AudioFocusPolicy.Change? = when (change) {
             AudioManager.AUDIOFOCUS_GAIN, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
             AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE,
