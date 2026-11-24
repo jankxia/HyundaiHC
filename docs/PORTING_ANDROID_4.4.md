@@ -220,3 +220,16 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 - 可原样复用：`app/` 下 **56 个非 UI 业务文件**——`connection/`、`wireless/`、`settings/`、`audio/`、`diagnostics/`、`startup/`、`projection/ProjectionView/Surface`、`trust/` 等；状态层 `ConnectionUiState` / `WirelessUiState` 是纯 Kotlin data/sealed，不依赖 Compose。
 - 三屏对接：首页（有线/无线两栏 + 开始/停止/重试/重置信任 + 二维码入口）、设置页（各分组开关/选项）、全屏投屏页（复用 `ProjectionView` 的 SurfaceView）。View 侧订阅 `controller.state` / `wireless.state` StateFlow，在主线程刷新文本、按钮与可见性；阶段 4 再处理平台 API。
 - 投屏容器 `ProjectionSurface.kt` 当前用 Compose `AndroidView` 包 SurfaceView，重写时直接用传统 `SurfaceView` 加入布局。
+
+### 阶段 3 接线调研结论（2026-11-24，已通读源码）
+
+- **非 UI 业务代码仅 3 个文件引用 Compose / androidx.activity**，其余 53 个业务文件干净，可原样保留：
+  - `MainActivity.kt`：`ComponentActivity` + `setContent`；业务调度（权限申请、VPN 授权、USB/开机拉起、start/stop）与 UI 解耦，保留；UI 部分整体替换。
+  - `wireless/WirelessStartFlow.kt`：入参 `ComponentActivity`，用 `registerForActivityResult(RequestMultiplePermissions)`。改回框架 `android.app.Activity`，权限走 `onRequestPermissionsResult`；4.4 版无线裁剪后此类先占位/停用。
+  - `projection/ProjectionSurface.kt`：纯 Compose `AndroidView` 包装，归档删除即可；底层 `projection/ProjectionView.kt` 是纯传统 `SurfaceView/FrameLayout`，直接复用。
+- **控制器公开接口（View 侧对接用）**：
+  - `ConnectionController.state: StateFlow<ConnectionUiState>`、`decoder`、`touchResets`；操作 `start()` / `stop()` / `retryNow()` / `resetTrustStoreAndStart()` / `reportBlocked(Notice)` / `sendInput(HiSightInput)`。
+  - `ConnectionUiState` 字段：`phase`、`step`、`pinCode`、`phoneConnected`、`video`、`firstFrame`、`inputReady`、`videoWidth/Height`、`decoderProblem`、`notice`、`attempt`、`active`。
+- **归档策略**：`app/.../ui/` 22 个 Compose 文件先整体移出 `main/kotlin` 编译集（仓库内 `legacy/` 留存参考，不删除），避免残留 Compose 引用报错；文案映射（`StatusTexts.kt`/`WirelessTexts.kt` 里的 phase/notice 文案）后续抽成纯 Kotlin 供 View 复用。
+- **建议执行顺序**：① 版本目录/构建脚本去 Compose 插件与依赖、去 `activity-compose`；② 归档 `ui/` 与 `ProjectionSurface.kt`；③ 新写框架 `MainActivity`（代码构建 `LinearLayout`/`ScrollView`，订阅 `connection.state` 刷新有线状态文本与开始/停止/重试按钮，设置/投屏先占位）；④ 改 `WirelessStartFlow` 入参类型；⑤ 编译出 debug 包，在安卓 9 模拟器回归骨架不崩；⑥ 再逐屏补设置页分组、投屏页 SurfaceView 接线、无线（4.4 裁剪）。
+- **布局方式**：车机低配 4.4，采用传统 XML/代码构建 `LinearLayout`/`ScrollView`/`TextView`/`Button`/`SurfaceView`，不引入任何 Compose 或现代 View 库。
