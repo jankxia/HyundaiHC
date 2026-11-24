@@ -401,3 +401,52 @@ BUILD SUCCESSFUL in 3m 40s
 - 没有低延迟键调优（`KEY_LOW_LATENCY` 是 API 30），4.4 只靠 `KEY_PRIORITY`。
 - 4.4 上 `MediaCodec` 的同步 API 是 4.1 才有的，所以 minSdk 若再降到 14/15 这条路径也不成立。
 
+### 阶段 7：有线链路在 4.4 上跑通 —— 两处 API 21 缺口（2026-11-24）
+
+> 起因：上一轮有线链路在 4.4 上是硬拒的（`NcmUsbLink.open` 直接抛 "USB 网卡要安卓 5.0 起"、`VpnTunnel.open` 拒 "TUN 要安卓 5.0 起"）。挡住的其实只有两个 API：`UsbDeviceConnection.setInterface` / `UsbInterface.getAlternateSetting`（21）与 `android.system.Os`（21）。协议本身（NCM/NTB16）与 `VpnService`（14）在 4.4 上都在。
+
+**缺口一：切换数据口的备用设置**
+
+4.4 没有 `setInterface()`，也不告诉你某个接口有几个备用设置、各自端点是什么。但这两件事都能绕过：
+
+| 手段 | 说明 |
+| --- | --- |
+| 标准控制请求 `SET_INTERFACE` | `bmRequestType=0x01`、`bRequest=0x0B`、`wValue=备用设置号`、`wIndex=接口号`、无数据、timeout 1000ms，走 `UsbDeviceConnection.controlTransfer`（API 12）；返回 ≥0 视为成功（`NcmUsbLink.setAlternateLegacy`） |
+| 原始描述符解析 | `getRawDescriptors()`（API 12）拿整段配置描述符，自己按 bInterfaceNumber / bAlternateSetting / bInterfaceClass / bInterfaceSubClass / bNumEndpoints 走一遍（`UsbRawDescriptors`），再用"端点地址集合"反查要切到哪个备用设置（`alternateFor`） |
+
+`NcmUsbLink` 因此新增 `legacyInterfaceSwitch = SDK_INT < 21` 分支：4.4 上先解析原始描述符拿到 `rawInterfaces`，用 `alternateFor(1, 该数据口的端点地址)` 反查活动备用设置号（批量 0x81/0x02 那一组），空闲设置号取同一接口里不带端点的那一组；切来切去都发 `SET_INTERFACE`，5.0+ 仍走原来的 `setInterface`。
+
+`res/xml/usb_device_filter.xml` 里已经声明了华为的三个 product，4.4 上插线即触发，别名 `UsbAttachAlias` 保证不弹系统选择框，这条链路不需要改。
+
+**缺口二：4.4 没有 `android.system.Os`**
+
+5.0+ 的 `TunInterface` 用 `Os.read(fd)/Os.write(fd)` + `Os.poll` + `ParcelFileDescriptor` 做非阻塞读写与唤醒。4.4 没有 `Os`，但 `ParcelFileDescriptor.getFileDescriptor()` 拿到的就是个普通 fd，用 `FileInputStream` / `FileOutputStream` 直接包一层就能阻塞读写：
+
+- `LegacyTunInterface.read()`：`FileInputStream.read(buffer)`，返回 0 视为 EOF（→ -1），IOException 且已关闭时返回 -1；
+- `write()` / `flush()` 直接落到 `FileOutputStream`；
+- `wakeup()` 把 `closed` 置位并关掉 `ParcelFileDescriptor`，阻塞中的 read 立刻抛 "Bad file descriptor" 被捕获成 -1，读线程退出；
+- 两个流不主动 close（所有权在 PFD，重复关会报错），生命周期统一交给 `ParcelFileDescriptor`。
+
+配套前提已经天然成立：`WiredVpnService.establishTun` 在 4.4 上本来就跳过了 `setBlocking` / `addAllowedApplication` / `allowFamily`（全是 21+），`Builder.establish()` 交回的 fd 就是阻塞的，正好配阻塞读。
+
+`VpnTunnel` 的 `tunnel` 字段类型从 `TunInterface` 改成 `PacketTunnel`，构造时按版本分派（`SDK_INT >= 21` 走 `TunInterface`，否则 `LegacyTunInterface`），`close()` 用 `is Closeable` 判型后调 `close()`，否则 `wakeup()`。
+
+**验证**
+
+- 新增 JVM 单测 `platform/src/test/.../UsbRawDescriptorsTest.kt`：手工拼一段 NCM 描述符（控制口 0/备用 0 + 中断 IN 0x83；数据口 1/备用 0 无端点；数据口 1/备用 1 批量 0x81+0x02），断言接口数、class/subclass、端点类型与 `maxPacketSize`、`alternateFor` 在端点集合匹配时返回 1、不匹配时返回 null，另有一条"截断描述符"用例保证不抛异常。
+
+```
+:platform:testDebugUnitTest --tests "...UsbRawDescriptorsTest"   BUILD SUCCESSFUL in 22s
+```
+
+- `:app:compileDebugKotlin` BUILD SUCCESSFUL in 42s。
+- `:platform:lintDebug :app:lintDebug` BUILD SUCCESSFUL in 2m 51s，`NewApi` 仍为 0（阶段 5 清过账，本轮没有回潮）。
+
+**已知限制（4.4 专属，必须真机确认）**
+
+- 4.4 的 `UsbDevice.getInterface(i)` 是否会把数据口的备用 1（带批量端点那一组）也列出来，取决于厂商内核/系统实现。若系统只暴露备用 0（端点为空），`NcmInterfaces.select` 就拿不到数据口 → 报"没找到 NCM 控制口或带批量端点的数据口（安卓 4.4）……这条线走不通"，**是明确报错，不是崩溃**，但这条线在那种机器上确实无解。
+- `SET_INTERFACE` 控制请求可能被手机固件或内核的 CDC 驱动拒绝（返回负值），此时同样落到上面那句报错。
+- "关 fd 唤醒阻塞读"依赖内核对已关闭 fd 上阻塞 read 的处理，4.4 上行为未实测；真机若出现停止后线程卡住，改成"手动设置超时 + 周期检查 closed"更稳。
+- 4.4 没有 `addAllowedApplication`：TUN 不只对本应用生效。当前只往 `192.168.66.0/24` 加了一条路由，影响面被限制在这一网段，但严格说不是应用级隔离。
+- **以上全部只有编译、lint 与 JVM 单测支撑，没有 API 19 真机/镜像证据**（本地无 4.4 镜像，见第 8 节）；雷电 API 28 跑的是 `SDK_INT >= 21` 分支，走的仍是 `setInterface`/`TunInterface`，测不到本轮新增的 4.4 路径。
+

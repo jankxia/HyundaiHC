@@ -74,6 +74,10 @@ internal class NcmUsbLink private constructor(
         private const val NOTIFICATION_TIMEOUT_MS = 300
         private const val DEFAULT_ZLP_PACKET_SIZE = 512
 
+        /** 标准 USB 请求 SET_INTERFACE：主机 → 设备、标准请求、接收者为接口（bmRequestType 0x01），bRequest 0x0B。 */
+        private const val SET_INTERFACE_REQUEST_TYPE = 0x01
+        private const val SET_INTERFACE_REQUEST = 0x0B
+
         /**
          * 打开切成 USB 网卡的手机：强占控制口和数据口 → 读 NTB 参数 → 数据口切到备用 0（NCM 功能复位）→
          * 需要时压低手机的 NTB 上限 → 切到带端点的备用设置 → 读掉一条连接通知。
@@ -82,13 +86,14 @@ internal class NcmUsbLink private constructor(
          * @param log 记录过程的回调（不含设备标识）。
          */
         fun open(usbManager: UsbManager, device: UsbDevice, sdkInt: Int, log: (String) -> Unit): NcmUsbLink {
-            // 切备用设置（setInterface）和读备用设置号都是安卓 5.0 起才有的接口：4.4 上没法把数据口切到
-            // 带端点的备用设置，NCM 这条线走不通，明说而不是等到调用时抛 NoSuchMethodError。
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-                throw IOException("USB 网卡要安卓 5.0 起（这台是 ${Build.VERSION.RELEASE}）：系统没有切换接口备用设置的接口")
-            }
+            // 安卓 4.4（API 19）没有 setInterface，也读不到 getAlternateSetting：改用标准 USB SET_INTERFACE
+            // 控制请求切备用设置，备用设置号从原始描述符里解析（见 UsbRawDescriptors）。
+            val legacyInterfaceSwitch = Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP
             val selection = NcmInterfaces.select(UsbDescriber.describe(device))
-                ?: throw IOException("没找到 NCM 控制口或带批量端点的数据口")
+                ?: throw IOException(
+                    "没找到 NCM 控制口或带批量端点的数据口（安卓 ${Build.VERSION.RELEASE}）：" +
+                        "4.4 上如果系统只暴露数据口的备用 0（没有端点），这条线走不通",
+                )
             val control = device.getInterface(selection.control.index)
             val dataActive = device.getInterface(selection.dataActive.index)
             val dataIdle = selection.dataIdle?.let { device.getInterface(it.index) }
@@ -106,7 +111,34 @@ internal class NcmUsbLink private constructor(
                     throw IOException("抢占 NCM 接口失败")
                 }
                 val parameters = readNtbParameters(connection, control.id, log)
-                if (dataIdle != null && !connection.setInterface(dataIdle)) log("数据口切到备用 0 失败，继续")
+                // 备用设置号：5.0 起直接读接口对象；4.4 没有这个属性，按端点集合从原始描述符反查。
+                val rawInterfaces = if (legacyInterfaceSwitch) {
+                    runCatching { UsbRawDescriptors.parse(connection.rawDescriptors) }.getOrNull() ?: emptyList()
+                } else {
+                    emptyList()
+                }
+                val activeAddresses = endpointAddressesOf(dataActive)
+                val activeAlt = if (legacyInterfaceSwitch) {
+                    UsbRawDescriptors.alternateFor(rawInterfaces, dataActive.id, activeAddresses) ?: run {
+                        log("原始描述符里没找到和数据口端点一致的备用设置，按备用 1 试")
+                        1
+                    }
+                } else {
+                    dataActive.alternateSetting
+                }
+                val idleAlt = if (legacyInterfaceSwitch && dataIdle != null) {
+                    UsbRawDescriptors.alternateFor(rawInterfaces, dataIdle.id, endpointAddressesOf(dataIdle)) ?: 0
+                } else {
+                    0
+                }
+                if (dataIdle != null) {
+                    val switched = if (legacyInterfaceSwitch) {
+                        setAlternateLegacy(connection, dataIdle.id, idleAlt, log)
+                    } else {
+                        connection.setInterface(dataIdle)
+                    }
+                    if (!switched) log("数据口切到备用 $idleAlt 失败，继续")
+                }
                 val plan = CdcNcm.receivePlan(parameters?.ntbInMaxSize, sdkInt)
                 plan.setInputSize?.let { size ->
                     // 规范要求数据口在备用 0 时才能改 NTB 输入上限。
@@ -120,7 +152,12 @@ internal class NcmUsbLink private constructor(
                         else "压低手机 NTB 上限失败（返回 $n），超过 $size 字节的块会被截断丢弃",
                     )
                 }
-                if (!connection.setInterface(dataActive)) throw IOException("数据口切到备用 ${dataActive.alternateSetting} 失败")
+                val switched = if (legacyInterfaceSwitch) {
+                    setAlternateLegacy(connection, dataActive.id, activeAlt, log)
+                } else {
+                    connection.setInterface(dataActive)
+                }
+                if (!switched) throw IOException("数据口切到备用 $activeAlt 失败")
                 notification?.let {
                     // 手机切好后会在通知端点上报连接状态与速率；读掉一条，与实测通过的做法一致。读不到也不要紧。
                     connection.bulkTransfer(it, ByteArray(16), 16, NOTIFICATION_TIMEOUT_MS)
@@ -149,6 +186,38 @@ internal class NcmUsbLink private constructor(
                 closeQuietly(connection, control, dataActive)
                 throw IOException("打开 USB 网卡出错: ${e.javaClass.simpleName}", e)
             }
+        }
+
+        /** 安卓 `UsbInterface` 的端点地址集合：只用来和描述符里的备用设置对号。 */
+        private fun endpointAddressesOf(iface: UsbInterface): Set<Int> =
+            (0 until iface.endpointCount).map { iface.getEndpoint(it).address }.toSet()
+
+        /**
+         * 安卓 4.4 没有 setInterface：自己发一条标准 USB SET_INTERFACE 请求。
+         * bmRequestType 0x01（主机 → 设备、标准、接收者为接口），bRequest 0x0B，
+         * wValue 备用设置号，wIndex 接口号，没有数据阶段。
+         */
+        private fun setAlternateLegacy(
+            connection: UsbDeviceConnection,
+            interfaceId: Int,
+            alternate: Int,
+            log: (String) -> Unit,
+        ): Boolean {
+            val result = try {
+                connection.controlTransfer(
+                    SET_INTERFACE_REQUEST_TYPE, SET_INTERFACE_REQUEST, alternate, interfaceId,
+                    ByteArray(0), 0, CONTROL_TIMEOUT_MS,
+                )
+            } catch (e: RuntimeException) {
+                log("SET_INTERFACE 出错（${e.javaClass.simpleName}），接口 $interfaceId 没能切到备用 $alternate")
+                return false
+            }
+            if (result >= 0) {
+                log("接口 $interfaceId 切到备用 $alternate（SET_INTERFACE 返回 $result）")
+                return true
+            }
+            log("接口 $interfaceId 切到备用 $alternate 被拒（返回 $result）")
+            return false
         }
 
         private fun readNtbParameters(connection: UsbDeviceConnection, controlId: Int, log: (String) -> Unit): NtbParameters? {

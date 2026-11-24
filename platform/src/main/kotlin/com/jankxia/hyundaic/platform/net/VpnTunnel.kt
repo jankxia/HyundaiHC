@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import com.jankxia.hyundaic.platform.log.Log
 import java.io.Closeable
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
@@ -22,7 +23,7 @@ internal class VpnTunnel private constructor(
     private val context: Context,
     private val connection: ServiceConnection,
     private val service: WiredVpnService,
-    val tunnel: TunInterface,
+    val tunnel: PacketTunnel,
     private val onRevoked: () -> Unit,
 ) : Closeable {
 
@@ -33,7 +34,8 @@ internal class VpnTunnel private constructor(
         if (closed) return
         closed = true
         if (service.revokeListener === onRevoked) service.revokeListener = null
-        tunnel.close()
+        val t = tunnel
+        if (t is Closeable) t.close() else t.wakeup()
         unbindQuietly(context, connection)
     }
 
@@ -50,10 +52,8 @@ internal class VpnTunnel private constructor(
             onRevoked: () -> Unit,
         ): VpnTunnel {
             check(Looper.myLooper() != Looper.getMainLooper()) { "不能在主线程建 TUN" }
-            // TUN 的收发靠 android.system.Os（安卓 5.0 起）：4.4 上没有它，有线这一路走不通，明说。
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-                throw IOException("有线连接要安卓 5.0 起（这台是 ${Build.VERSION.RELEASE}）：系统没有 TUN 收发需要的接口")
-            }
+            // 4.4 没有 android.system.Os：走 LegacyTunInterface（FileInputStream/FileOutputStream 直接读写 TUN）。
+            // VpnService.Builder 本身从 API 14 就有，4.4 能建出 TUN。
             val app = context.applicationContext ?: context
             val connected = CountDownLatch(1)
             val serviceRef = AtomicReference<WiredVpnService?>()
@@ -94,7 +94,12 @@ internal class VpnTunnel private constructor(
                     throw IOException("系统拒绝建 TUN: ${e.javaClass.simpleName}: ${e.message}", e)
                 } ?: throw IOException("系统拒绝建 TUN：没有 VPN 授权，或授权已被别的 VPN 应用取代")
                 val tun = try {
-                    TunInterface(descriptor)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        TunInterface(descriptor)
+                    } else {
+                        Log.i(WiredVpnService.TAG, "安卓 ${Build.VERSION.RELEASE}：TUN 用 FileInputStream/FileOutputStream 读写")
+                        LegacyTunInterface(descriptor)
+                    }
                 } catch (e: IOException) {
                     descriptor.close()
                     throw e
