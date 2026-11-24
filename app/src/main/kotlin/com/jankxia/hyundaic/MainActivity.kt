@@ -1,74 +1,43 @@
 package com.jankxia.hyundaic
 
 import android.Manifest
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.KeyEvent
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.jankxia.hyundaic.audio.MicPermission
 import com.jankxia.hyundaic.connection.CarHome
 import com.jankxia.hyundaic.connection.ConnectionController
-import com.jankxia.hyundaic.connection.DeviceInfo
+import com.jankxia.hyundaic.connection.DisplayArea
 import com.jankxia.hyundaic.connection.Notice
-import com.jankxia.hyundaic.connection.Phase
 import com.jankxia.hyundaic.platform.log.Log
 import com.jankxia.hyundaic.platform.net.VpnConsent
 import com.jankxia.hyundaic.settings.AppSettings
 import com.jankxia.hyundaic.settings.AudioPreferences
 import com.jankxia.hyundaic.startup.BootStart
 import com.jankxia.hyundaic.startup.BootStartPolicy
-import com.jankxia.hyundaic.ui.HomeActions
-import com.jankxia.hyundaic.ui.HomeScreen
-import com.jankxia.hyundaic.ui.HyundaiHcTheme
-import com.jankxia.hyundaic.ui.Palette
-import com.jankxia.hyundaic.ui.ProjectionScreen
-import com.jankxia.hyundaic.ui.SettingsScreen
-import com.jankxia.hyundaic.ui.WirelessActions
 import com.jankxia.hyundaic.wireless.WirelessController
-import com.jankxia.hyundaic.wireless.WirelessPhase
-import com.jankxia.hyundaic.wireless.WirelessStartFlow
 
 /**
- * 唯一的界面：首页、设置、全屏投屏页。连接本身在 [ConnectionController] 和前台服务里，界面关掉不影响。
+ * 唯一的界面（传统 View 骨架，安卓 4.4 适配版）：首页有线状态 + 开始/停止/重试；设置页、全屏投屏页、
+ * 无线界面待后续阶段补回。连接本身在 [ConnectionController] 和前台服务里，界面关掉不影响。
  *
- * 插线拉起：设置「插线时不再弹窗」打开后（见 UsbAutoConnect），清单里给华为、荣耀手机声明的 USB 设备过滤器才生效，
- * 插线时系统会问用不用本应用打开，勾了「默认」以后就直接拉起来（经 [onNewIntent] 或 [onCreate]）。
- * 会话中途手机重新枚举也会再拉一次，由调度按状态忽略。
- *
- * 开机自动打开：设置打开后，开机广播接收器打开本界面（见 [BootStart]），这里当作点了「开始」，进入等插线；
- * 要做无线自动回连、插线又能自己把有线带起来时不进入，让无线先等（见 BootStartPolicy.waitForCable）。
- * 「开机静默连接」开着时开机不打开本界面，等待在后台开始；手机连上时用 SHOW_PROJECTION 把本界面带到前台，
- * 这时不开始任何连接，投屏页、连接码由下面按连接状态自己切过去。
- *
- * 开始之前要的授权按顺序拿：通知权限（安卓 13 起，只问一次，拒绝了也照常连接）→ 录音权限（开着车机麦克风时，
- * 只自动问一次，拒绝了照常连接、不声明麦克风）→ VPN 授权（有线连接必需）。
- *
- * 首页左栏是无线连接、右栏是有线连接（[HomeScreen]）；无线开始前的运行时权限由 [WirelessStartFlow] 申请。
- * 两种连接同时只能有一种：无线在进行时不开始有线（包括插线拉起）；只是在等已配对的手机回连、手机还没连上时，
- * 有线优先，无线让出。界面回到前台时看看要不要进入等回连（[WirelessController.onAppForeground]）。
+ * 插线拉起、开机自动打开、开机静默连接等业务调度沿用原逻辑；开始前的授权按 通知 → 录音 → VPN 顺序，
+ * 框架 [Activity] 权限回调与 [startActivityForResult] 实现。
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : Activity() {
 
     private enum class StartKind { START, USB_ATTACHED, BOOT }
 
@@ -78,45 +47,39 @@ class MainActivity : ComponentActivity() {
     private val controller: ConnectionController get() = (application as HyundaiHcApp).connection
     private val wireless: WirelessController get() = (application as HyundaiHcApp).wireless
 
-    /** 无线连接开始前申请权限；结果回调要在 onCreate 之前注册，所以在构造时创建。 */
-    private val wirelessStart = WirelessStartFlow(this) { wireless }
+    private lateinit var statusView: TextView
+    private lateinit var noticeView: TextView
+    private lateinit var pinView: TextView
+    private lateinit var startBtn: Button
+    private lateinit var stopBtn: Button
+    private lateinit var retryBtn: Button
+    private lateinit var grantVpnBtn: Button
+    private lateinit var resetTrustBtn: Button
 
-    private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { askNextPermission() }
-
-    private val micPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (!granted) {
-                Log.i(TAG, "用户没有给录音权限：这次不声明车机麦克风")
-                Toast.makeText(this, R.string.mic_permission_denied, Toast.LENGTH_LONG).show()
-            }
-            askNextPermission()
-        }
-
-    private val vpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val kind = pendingStart
-        pendingStart = null
-        if (kind == null) return@registerForActivityResult
-        if (result.resultCode == RESULT_OK && VpnConsent.isGranted(this)) {
-            dispatch(kind)
-        } else {
-            Log.i(TAG, "用户没有同意 VPN 授权")
-            controller.reportBlocked(Notice.VpnConsentRequired)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val poll = object : Runnable {
+        override fun run() {
+            renderState()
+            mainHandler.postDelayed(this, POLL_MS)
         }
     }
+
+    private val hostListener = ConnectionController.HostListener { mainHandler.post { renderState() } }
 
     override fun onResume() {
         super.onResume()
         CarHome.attach(this)
+        mainHandler.post(poll)
         // 记下底部导航栏的实际高度（不管此刻显不显示），「全屏显示」关时按它让出画面、算声明尺寸。
         window.decorView.post {
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(window.decorView) ?: return@post
             val bar = insets.getInsetsIgnoringVisibility(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom
-            if (bar > 0) com.jankxia.hyundaic.connection.DisplayArea.measuredNavigationBarHeight = bar
+            if (bar > 0) DisplayArea.measuredNavigationBarHeight = bar
         }
     }
 
     override fun onPause() {
+        mainHandler.removeCallbacks(poll)
         CarHome.detach(this)
         super.onPause()
     }
@@ -125,30 +88,17 @@ class MainActivity : ComponentActivity() {
      * 界面没处理的方向盘、媒体键交给 [com.jankxia.hyundaic.input.MediaKeys]：有能发键的连接时转给手机并吃掉，
      * 系统就不再把它派给别的媒体应用；没有连接时照常交给系统。
      */
-    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
         com.jankxia.hyundaic.input.MediaKeys.onWindowKey(event) || super.onKeyDown(keyCode, event)
 
-    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
         com.jankxia.hyundaic.input.MediaKeys.onWindowKey(event) || super.onKeyUp(keyCode, event)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
-        val identity = IdentityLoader.load(this)
-        val actions = HomeActions(
-            onStart = { requestStart(StartKind.START) },
-            onStop = { controller.stop() },
-            onRetryNow = { controller.retryNow() },
-            onGrantVpn = { requestStart(StartKind.START) },
-            onResetTrustStore = { controller.resetTrustStoreAndStart() },
-        )
-        setContent {
-            HyundaiHcTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Palette.Background) {
-                    AppRoot(controller, settings, identity, actions, wireless, wirelessStart)
-                }
-            }
-        }
+        buildLayout()
+        controller.addHostListener(hostListener)
         if (savedInstanceState == null) handleLaunch(intent)
     }
 
@@ -157,11 +107,76 @@ class MainActivity : ComponentActivity() {
         wireless.onAppForeground()
     }
 
+    override fun onDestroy() {
+        controller.removeHostListener(hostListener)
+        mainHandler.removeCallbacks(poll)
+        super.onDestroy()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleLaunch(intent)
     }
+
+    // ---------------------------------------------------------------- 界面骨架
+
+    private fun buildLayout() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val title = TextView(this).apply {
+            text = getString(R.string.app_name)
+            textSize = 22f
+        }
+        statusView = TextView(this).apply { textSize = 16f; setPadding(0, pad, 0, 0) }
+        noticeView = TextView(this).apply { textSize = 14f; setPadding(0, pad / 2, 0, 0) }
+        pinView = TextView(this).apply { textSize = 18f; setPadding(0, pad, 0, 0) }
+
+        startBtn = Button(this).apply { text = getString(R.string.action_start); setOnClickListener { requestStart(StartKind.START) } }
+        stopBtn = Button(this).apply { text = getString(R.string.action_stop); setOnClickListener { controller.stop() } }
+        retryBtn = Button(this).apply { text = getString(R.string.action_retry_now); setOnClickListener { controller.retryNow() } }
+        grantVpnBtn = Button(this).apply { text = getString(R.string.action_grant_vpn); setOnClickListener { requestStart(StartKind.START) } }
+        resetTrustBtn = Button(this).apply { text = getString(R.string.action_reset_trust); setOnClickListener { controller.resetTrustStoreAndStart() } }
+
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, pad, 0, 0)
+            addView(startBtn)
+            addView(stopBtn)
+            addView(retryBtn)
+            addView(grantVpnBtn)
+            addView(resetTrustBtn)
+        }
+
+        root.addView(title)
+        root.addView(statusView)
+        root.addView(noticeView)
+        root.addView(pinView)
+        root.addView(buttons)
+        setContentView(root)
+    }
+
+    /** 按当前连接状态刷新骨架上的文本与按钮；完整三屏与无线界面待后续阶段补回。 */
+    private fun renderState() {
+        val s = controller.state.value
+        statusView.text = "阶段：${s.phase}　步骤：${s.step ?: "—"}"
+        noticeView.text = s.notice?.toString() ?: ""
+        pinView.text = if (s.pinCode != null) "连接码：${s.pinCode}" else ""
+
+        val identityLoaded = IdentityLoader.load(this) is IdentityLoader.Result.Loaded
+        val idle = s.phase == com.jankxia.hyundaic.connection.Phase.IDLE
+        startBtn.isEnabled = idle && identityLoaded
+        stopBtn.isEnabled = s.phase != com.jankxia.hyundaic.connection.Phase.STOPPING
+        retryBtn.visibility = if (s.phase == com.jankxia.hyundaic.connection.Phase.REPLUG_REQUIRED) View.VISIBLE else View.GONE
+        grantVpnBtn.visibility = if (idle && s.notice is Notice.VpnConsentRequired) View.VISIBLE else View.GONE
+        resetTrustBtn.visibility = if (idle && s.notice is Notice.TrustStoreCorrupt) View.VISIBLE else View.GONE
+    }
+
+    // ---------------------------------------------------------------- 启动流程
 
     private fun handleLaunch(intent: Intent?) {
         if (BootStart.isBootLaunch(intent)) {
@@ -206,16 +221,31 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             settings.notificationPermissionAsked = true
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATION)
             return
         }
         val audio = AudioPreferences(this)
         if (audio.micEnabled && !audio.micPermissionAsked && !MicPermission.granted(this)) {
             audio.micPermissionAsked = true
-            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
             return
         }
         continueStart()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            REQ_NOTIFICATION -> askNextPermission()
+            REQ_MIC -> {
+                val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                if (!granted) {
+                    Log.i(TAG, "用户没有给录音权限：这次不声明车机麦克风")
+                    Toast.makeText(this, R.string.mic_permission_denied, Toast.LENGTH_LONG).show()
+                }
+                askNextPermission()
+            }
+        }
     }
 
     private fun continueStart() {
@@ -226,7 +256,7 @@ class MainActivity : ComponentActivity() {
                 dispatch(kind)
             }
             is VpnConsent.Status.NeedsUserConsent -> try {
-                vpnConsent.launch(consent.intent)
+                startActivityForResult(consent.intent, REQ_VPN)
             } catch (e: ActivityNotFoundException) {
                 pendingStart = null
                 controller.reportBlocked(Notice.VpnUnavailable(getString(R.string.vpn_dialog_missing)))
@@ -235,6 +265,20 @@ class MainActivity : ComponentActivity() {
                 pendingStart = null
                 controller.reportBlocked(Notice.VpnUnavailable(consent.reason))
             }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_VPN) return
+        val kind = pendingStart
+        pendingStart = null
+        if (kind == null) return
+        if (resultCode == RESULT_OK && VpnConsent.isGranted(this)) {
+            dispatch(kind)
+        } else {
+            Log.i(TAG, "用户没有同意 VPN 授权")
+            controller.reportBlocked(Notice.VpnConsentRequired)
         }
     }
 
@@ -249,101 +293,9 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "HyundaiHC-App"
-    }
-}
-
-private enum class Screen { HOME, SETTINGS, PROJECTION }
-
-@Composable
-private fun AppRoot(
-    controller: ConnectionController,
-    settings: AppSettings,
-    identity: IdentityLoader.Result,
-    actions: HomeActions,
-    wireless: WirelessController,
-    wirelessStart: WirelessStartFlow,
-) {
-    val state by controller.state.collectAsState()
-    val decoder by controller.decoder.collectAsState()
-    val touchResets by controller.touchResets.collectAsState()
-    val wState by wireless.state.collectAsState()
-    val wDecoder by wireless.decoder.collectAsState()
-    val wTouchResets by wireless.touchResets.collectAsState()
-    val wirelessProjecting = wState.phase == WirelessPhase.PROJECTING
-    var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
-    // 投屏页显示的是哪种连接的画面。
-    var projectionWireless by rememberSaveable { mutableStateOf(false) }
-    // 已经自动切到投屏页的那次连接：用户按返回回到首页后，同一次连接不再强拉回去。
-    var autoShownAttempt by remember { mutableIntStateOf(0) }
-    var autoShownWireless by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(state.phase, state.attempt, wState.phase, wState.attempt) {
-        when {
-            wirelessProjecting && autoShownWireless != wState.attempt -> {
-                autoShownWireless = wState.attempt
-                projectionWireless = true
-                screen = Screen.PROJECTION
-            }
-            state.phase == Phase.PROJECTING && autoShownAttempt != state.attempt -> {
-                autoShownAttempt = state.attempt
-                projectionWireless = false
-                screen = Screen.PROJECTION
-            }
-            // 投屏结束回首页（首页两栏各自写着结束原因）。
-            screen == Screen.PROJECTION && projectionWireless && !wirelessProjecting -> screen = Screen.HOME
-            screen == Screen.PROJECTION && !projectionWireless && state.phase != Phase.PROJECTING -> screen = Screen.HOME
-            // 要输连接码时回首页，免得用户停在设置页看不到。
-            state.phase == Phase.PAIRING && screen == Screen.SETTINGS -> screen = Screen.HOME
-        }
-    }
-    // 设置可能改了：还没连上手机的等待按新设置重开。
-    val closeSettings = {
-        wireless.onSettingsClosed()
-        screen = Screen.HOME
-    }
-    // 返回键：设置页、投屏页都回首页；投屏时连接保持，可以再回到投屏画面。
-    BackHandler(enabled = screen != Screen.HOME) {
-        if (screen == Screen.SETTINGS) closeSettings() else screen = Screen.HOME
-    }
-
-    when (screen) {
-        Screen.HOME -> HomeScreen(
-            wired = state,
-            wireless = wState,
-            identity = identity,
-            actions = actions,
-            wirelessActions = WirelessActions(
-                onStart = wirelessStart::start,
-                onStop = wireless::stop,
-                onShowProjection = {
-                    if (wirelessProjecting) {
-                        projectionWireless = true
-                        screen = Screen.PROJECTION
-                    }
-                },
-                onOpenSettings = { screen = Screen.SETTINGS },
-                onOpenAppSettings = wirelessStart::openAppSettings,
-                onEnableBluetooth = wirelessStart::requestEnableBluetooth,
-                onResetTrustStore = wireless::resetTrustStoreAndStart,
-            ),
-            onShowProjection = {
-                if (state.phase == Phase.PROJECTING) {
-                    projectionWireless = false
-                    screen = Screen.PROJECTION
-                }
-            },
-            onOpenSettings = { screen = Screen.SETTINGS },
-        )
-        Screen.SETTINGS -> {
-            val context = LocalContext.current
-            val screenSpec = remember { com.jankxia.hyundaic.connection.DisplayArea.screenFor(context, settings.fullScreen) }
-            val systemBluetooth = remember { DeviceInfo.systemBluetoothAddress() }
-            SettingsScreen(settings, screenSpec, systemBluetooth, onBack = closeSettings)
-        }
-        Screen.PROJECTION -> if (projectionWireless) {
-            ProjectionScreen(wState.projection, wDecoder, wTouchResets, onInput = wireless::sendInput)
-        } else {
-            ProjectionScreen(state, decoder, touchResets, onInput = controller::sendInput)
-        }
+        const val REQ_NOTIFICATION = 1
+        const val REQ_MIC = 2
+        const val REQ_VPN = 3
+        const val POLL_MS = 500L
     }
 }

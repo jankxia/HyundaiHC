@@ -233,3 +233,29 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 - **归档策略**：`app/.../ui/` 22 个 Compose 文件先整体移出 `main/kotlin` 编译集（仓库内 `legacy/` 留存参考，不删除），避免残留 Compose 引用报错；文案映射（`StatusTexts.kt`/`WirelessTexts.kt` 里的 phase/notice 文案）后续抽成纯 Kotlin 供 View 复用。
 - **建议执行顺序**：① 版本目录/构建脚本去 Compose 插件与依赖、去 `activity-compose`；② 归档 `ui/` 与 `ProjectionSurface.kt`；③ 新写框架 `MainActivity`（代码构建 `LinearLayout`/`ScrollView`，订阅 `connection.state` 刷新有线状态文本与开始/停止/重试按钮，设置/投屏先占位）；④ 改 `WirelessStartFlow` 入参类型；⑤ 编译出 debug 包，在安卓 9 模拟器回归骨架不崩；⑥ 再逐屏补设置页分组、投屏页 SurfaceView 接线、无线（4.4 裁剪）。
 - **布局方式**：车机低配 4.4，采用传统 XML/代码构建 `LinearLayout`/`ScrollView`/`TextView`/`Button`/`SurfaceView`，不引入任何 Compose 或现代 View 库。
+
+### 阶段 2/3 落地记录（2026-11-24 第二轮，debug 出包）
+
+> 目标检查点：在 minSdk 19 下把 app 编译出 debug 包，并在安卓 9 模拟器确认传统 View 骨架不崩。本轮达成。
+
+**依赖裁剪（阶段 2 收尾）**
+- 版本目录移除：`activity-compose`、Compose BOM/ui/ui-tooling/ui-tooling-preview/material3、`kotlin-compose` 插件；根 `build.gradle.kts` 去掉 `kotlin.compose` 插件别名；`settings.gradle.kts` 注释掉 `:tools:btprobe`（Compose 实现，源码留存 `tools/btprobe`，不参与构建）。
+- `core-ktx` 定版 **1.12.0**；新增 `androidx.multidex:multidex:2.0.1`（minSdk 14，兼容 19）。
+- 实测 dex 方法数 **71660 > 65536**，单 dex 装不下；`defaultConfig.multiDexEnabled = true`，`HyundaiHcApp` 改继承 `MultiDexApplication`。出包含 `classes.dex` + `classes2.dex`。
+- 调试钩子归并：原 `debug` 源集的 `AudioCaptureFactory`/`DebugOverrides`（真抓包/读系统属性）随 debug 归档；`release` 源集里的同名空实现（`AudioCapture.None`、`forceRfcommSdp=false`）移到 `main`，debug/release 统一走空实现。
+
+**源码归档（阶段 3）**
+- 归档到仓库根 `legacy/`（移出 sourceSet，保留参考历史，不删除）：
+  - `legacy/app-main-ui/`：22 个 Compose UI 文件；`legacy/app-main-projection/`：`ProjectionSurface.kt`、`WirelessStartFlow.kt`；`legacy/app-test-ui/`：3 个 Compose 相关单测；`legacy/app-debug/`：整个 debug 源集（两个 demo Activity、合成码流喂数、调试覆盖开关、demo 资源与 manifest）。
+- `MainActivity` 重写为框架 `android.app.Activity`：`registerForActivityResult` 权限/VPN 合约改为 `requestPermissions` + `onRequestPermissionsResult`、`startActivityForResult` + `onActivityResult`；业务调度（`handleLaunch`/`handleUsbAttach`/`requestStart`/`askNextPermission`/`continueStart`/`dispatch`、CarHome 前后台、MediaKeys 键转发、无线让出）保留；界面为代码构建的 `LinearLayout` 骨架（标题/状态/提示/连接码文本 + 开始/停止/重试/授权 VPN/清除信任按钮），`controller.addHostListener` + `mainHandler` 500ms 轮询刷新状态。
+
+**构建与回归结果**
+- `:app:assembleDebug` **BUILD SUCCESSFUL**；APK `app/build/outputs/apk/debug/app-debug.apk`（约 7.09 MB，2 个 dex）。
+- `aapt dump badging`：package `com.jankxia.hyundaic`，versionName 0.2.6，`sdkVersion:'19'`，`targetSdkVersion:'36'`，launchable `.MainActivity`，label **HyundaiHC**。
+- 雷电模拟器（安卓 9/API 28）`install -r` 成功；`MainActivity` Displayed +1.65s，无 FATAL/ClassNotFound/NoSuchMethod；骨架渲染标题、阶段 IDLE、开始（缺 identity 置灰）/停止按钮，重试/VPN/重置信任按钮按 notice 条件隐藏。API 28 走原生 multidex（日志 `VM has multidex support, MultiDex support library is disabled`）；真机 API 19 才由支持库解压 second dex，待阶段 5 真机验证加载与启动性能。
+- `:tools:desktop:compileKotlin` **BUILD SUCCESSFUL**；core 各模块 JVM 单测通过。
+- **已知本地单测环境失败（非本轮引入）**：`FileTrustStoreTest.laterPairingsReplaceTheWholeFile` 在 Windows 抛 `IOException: 把临时文件改名为 trust-store.bin 失败`。原因是 Windows `File.renameTo` 不能覆盖已存在目标（Android/Linux 可覆盖）；`FileTrustStore.writeAtomically` 用 `java.io.File.renameTo`，API 19 无 `java.nio.file.Files.move`，业务代码不改。该用例在 Linux/Android 上通过，仅 Windows 本地 JVM 单测复现。
+
+**阶段 3 遗留（后续补回）**
+- 设置页 11 个分组开关/选项；全屏投屏页 SurfaceView 接线（复用底层 `projection/ProjectionView.kt`）；无线界面（4.4 裁剪，先占位）；首页 phase/notice/step 文案映射——原 `StatusTexts.kt`/`WirelessTexts.kt` 在已归档的 Compose 文件里，需抽成纯 Kotlin 供 View 复用；当前骨架仅显示枚举 `toString` 与原始 notice。
+- `:app:assembleRelease` **BUILD SUCCESSFUL**（未开 minify，未配签名时出未签名包）；release 源集已清空，空实现钩子在 main，release 编译通过。

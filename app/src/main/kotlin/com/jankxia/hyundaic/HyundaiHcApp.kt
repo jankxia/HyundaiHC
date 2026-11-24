@@ -1,6 +1,6 @@
 package com.jankxia.hyundaic
 
-import android.app.Application
+import androidx.multidex.MultiDexApplication
 import com.jankxia.hyundaic.connection.ConnectionController
 import com.jankxia.hyundaic.connection.Phase
 import com.jankxia.hyundaic.diagnostics.LogRecorder
@@ -9,7 +9,7 @@ import com.jankxia.hyundaic.startup.ProjectionSurfacer
 import com.jankxia.hyundaic.wireless.LePairingNames
 import com.jankxia.hyundaic.wireless.WirelessController
 
-class HyundaiHcApp : Application() {
+class HyundaiHcApp : MultiDexApplication() {
 
     /** 有线投屏的总调度，进程内唯一。 */
     val connection: ConnectionController by lazy { ConnectionController(this) }

@@ -39,5 +39,5 @@ include(":app")
 
 // 开发工具：在电脑的 JVM 上直接连真手机跑完整会话（不打进安装包）。
 include(":tools:desktop")
-// 真机实测用的小工具，不进应用本体。
-include(":tools:btprobe")
+// 真机实测用的小工具（Compose 实现），4.4 适配版暂不纳入构建；源码留存于 tools/btprobe。
+// include(":tools:btprobe")

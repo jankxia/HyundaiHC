@@ -3,7 +3,6 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
 }
 
 val localProperties = Properties().apply {
@@ -47,6 +46,8 @@ android {
         // versionCode = 主版本 × 10000 + 次版本 × 100 + 补丁号。
         versionCode = 206
         versionName = "0.2.6"
+        // minSdk 19 不支持原生多 dex：方法数超 64K 时需要 multidex 支持库。
+        multiDexEnabled = true
     }
 
     sourceSets {
@@ -80,7 +81,6 @@ android {
     }
 
     buildFeatures {
-        compose = true
         buildConfig = true
     }
 
@@ -102,13 +102,9 @@ dependencies {
     // 无线连接页显示配对二维码（Apache-2.0）。
     implementation(libs.zxing.core)
 
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.core.ktx)
+    // minSdk 19 多 dex 加载支持库。
+    implementation(libs.androidx.multidex)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit)

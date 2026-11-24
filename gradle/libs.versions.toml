@@ -8,8 +8,7 @@ kotlin = "2.1.20"
 coroutines = "1.10.2"
 serialization = "1.8.1"
 coreKtx = "1.12.0"
-activityCompose = "1.10.1"
-composeBom = "2025.06.00"
+multidex = "2.0.1"
 junit = "4.13.2"
 bouncycastle = "1.79"
 # 无线连接页的二维码（只用编码部分）。
@@ -24,12 +23,7 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
-androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
-androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
-androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
-androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-multidex = { group = "androidx.multidex", name = "multidex", version.ref = "multidex" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 android-api19-signature = { group = "net.sf.androidscents.signature", name = "android-api-level-19", version.ref = "androidApi19Signature" }
@@ -39,5 +33,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 animalsniffer = { id = "ru.vyarus.animalsniffer", version.ref = "animalsniffer" }
