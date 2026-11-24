@@ -17,13 +17,13 @@
     <string name="le_pair_expired">离开本应用太久，配对入口已经关了，车机蓝牙名称也已改回。要配对请重新打开。</string>
     <string name="le_pair_failed_no_bluetooth">这台车机没有蓝牙，用不了这个办法。</string>
     <string name="le_pair_failed_bluetooth_off">车机蓝牙没开。请先打开蓝牙，再点「补全手机蓝牙配对」。</string>
-    <string name="le_pair_failed_permissions">缺「附近的设备」权限，开不了配对入口。请在系统设置里给 OpenHC 打开这个权限后再试。</string>
+    <string name="le_pair_failed_permissions">缺「附近的设备」权限，开不了配对入口。请在系统设置里给 HyundaiHC 打开这个权限后再试。</string>
     <string name="le_pair_failed_name_unknown">读不到车机原来的蓝牙名称（或者它现在就叫「%1$s」），为了以后能改回去，这次不改名、不开配对入口。名称不对的话，请先在车机系统的蓝牙设置里改回原来的再试。</string>
     <string name="le_pair_failed_name_not_saved">记不下车机原来的蓝牙名称，这次不改名、不开配对入口。</string>
     <string name="le_pair_failed_rename">车机系统不让改蓝牙名称，这次不开配对入口。</string>
     <string name="le_pair_failed_gatt">车机开不了配对用的蓝牙服务（%1$s）。点「完成」后再试一次。</string>
     <string name="le_pair_failed_unsupported">这台车机不支持 BLE 广播，用不了这个办法。</string>
-    <string name="le_pair_failed_busy">车机同时能发的蓝牙广播不够用（OpenHC 等手机回连时也在发）。可以先在首页停掉无线等待，再来补配对。</string>
+    <string name="le_pair_failed_busy">车机同时能发的蓝牙广播不够用（HyundaiHC 等手机回连时也在发）。可以先在首页停掉无线等待，再来补配对。</string>
     <string name="le_pair_failed_advertising">车机没能发出配对广播（%1$s）。点「完成」后再试一次。</string>
     <string name="le_pair_reason_unknown">原因不明</string>
 </resources>

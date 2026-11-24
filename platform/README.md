@@ -52,7 +52,7 @@ VpnService 已在本模块清单里声明，合并进应用后自动生效；TUN
 **RFCOMM 服务端**（`RfcommServer`，实现 `RfcommEndpoint`）：
 
 ```kotlin
-val server = RfcommServer(adapter, "OpenHC", uuid, object : RfcommEvents { /* 在监听自己的线程上按顺序回调 */ })
+val server = RfcommServer(adapter, "HyundaiHC", uuid, object : RfcommEvents { /* 在监听自己的线程上按顺序回调 */ })
 server.start()            // 开监听（不加密、带服务记录）→ onListening(通道号) → accept → onAccepted(对端地址) → onData…
 server.write(bytes)       // 不阻塞，写线程按顺序发
 server.closeListener()    // 撤掉服务记录、不再接受；已接受的连接不受影响
@@ -169,7 +169,7 @@ projectionView.onInput = { input ->
   统计里直接给出。扣帧的时机按 Choreographer 的刷新回调和屏幕给的时序算：`ProjectionView` 拿到 Surface 时自动
   `setDisplayTiming`，自己接 Surface 的要自己调 `decoder.setDisplayTiming(DisplayRefreshRate.timingOf(display))`。
   应用设置页「帧率」下面有开关（下次连接生效）；调试演示页能当场切换，还能加「送帧抖动」，不连手机也能对照。
-- **统计日志**（tag `OpenHC-Video`，每 5 秒打一组，内容是最近 1 秒）：
+- **统计日志**（tag `HyundaiHC-Video`，每 5 秒打一组，内容是最近 1 秒）：
   - 第一行：输入、解码、上屏帧率，丢帧，解码延迟。「上屏」来自系统的上屏回调：按开源框架的实现看，OMX 解码器
     只为真正显示过的帧回调，被合成器挤掉的帧没有；有的解码器在送去显示时就回调，这时它反映不出挤掉的帧。
   - 第二行：「两帧同刷新」是推算会和上一帧挤进同一次刷新的帧数，节拍关时它应当约等于「解码 − 上屏」；
@@ -177,7 +177,7 @@ projectionView.onInput = { input ->
     取走的推算时间，两种做法之差就是节拍多出来的延迟，也直接给在「节拍多等」；「到达抖动」是两帧到达间隔与手机时间戳
     间隔之差（传输和接收这一路加的抖动），「手机间隔」是手机时间戳间隔的最小～最大值（手机出帧本身匀不匀）。
 - 线程模型、缓存与重放、丢帧与恢复、低延迟的做法写在 `VideoDecoder` 的类注释里；多指的处理规则写在 `TouchMapper` 的类注释里。
-- 调试构建多一个「OpenHC 投屏演示」页（不放桌面图标，用 `adb shell am start -n io.github.gcbond.openhc/.demo.ProjectionDemoActivity` 打开）：不连手机，播放运行时现生成的合成码流，用来在车机上检查解码、
+- 调试构建多一个「HyundaiHC 投屏演示」页（不放桌面图标，用 `adb shell am start -n com.jankxia.hyundaic/.demo.ProjectionDemoActivity` 打开）：不连手机，播放运行时现生成的合成码流，用来在车机上检查解码、
   显示比例、全屏、切后台恢复和触摸换算（十字准星应当正好在手指下面）。点「暂停出帧」后切后台再回来，
   画面应当马上回到暂停时的那一帧（重放缓存）。
 

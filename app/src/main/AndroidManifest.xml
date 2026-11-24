@@ -62,7 +62,7 @@
         android:required="false" />
 
     <!--
-        设置「开机自动打开 OpenHC」（默认关）：收开机广播（熄火后再点火时有的车机会重发），收到后打开界面。
+        设置「开机自动打开 HyundaiHC」（默认关）：收开机广播（熄火后再点火时有的车机会重发），收到后打开界面。
         安卓 10 起后台应用打开界面要悬浮窗权限，由车主在系统里给；没给时开机打不开界面，其余功能不受影响。
         再开着「开机静默连接」时开机不打开界面，在后台起前台服务等手机，手机连上时才把界面带到前台（同样要悬浮窗权限）。
     -->
@@ -82,7 +82,7 @@
     </queries>
 
     <application
-        android:name=".OpenHcApp"
+        android:name=".HyundaiHcApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"

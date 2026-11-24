@@ -6,8 +6,8 @@ plugins {
 }
 
 application {
-    mainClass.set("io.github.gcbond.openhc.tools.desktop.MainKt")
-    applicationName = "openhc-desktop"
+    mainClass.set("com.jankxia.hyundaic.tools.desktop.MainKt")
+    applicationName = "hyundaic-desktop"
 }
 
 dependencies {

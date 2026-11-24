@@ -1,0 +1,174 @@
+package com.jankxia.hyundaic.ui
+
+import android.content.Context
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import com.jankxia.hyundaic.HyundaiHcApp
+import com.jankxia.hyundaic.R
+import com.jankxia.hyundaic.settings.WirelessPreferences
+
+/**
+ * 无线连接的两项设置在设置页里分在两组：「连接方式」里是只用数据线连接，「启动」里是自动连接手机。切换立即生效。
+ *
+ * 这两行分在不同的组里、又互相影响（只用数据线连接开着时提示别的不起作用，自动连接手机开着时「启动」组要列出悬浮窗权限），
+ * 所以状态放在这里，由设置页创建一份（[rememberWirelessSettingsState]）传给各行。BLE 广播的调试项随被动等待一起不再显示。
+ */
+@Stable
+internal class WirelessSettingsState(context: Context) {
+    private val prefs = WirelessPreferences(context)
+    private val controller = (context.applicationContext as? HyundaiHcApp)?.wireless
+
+    var wiredOnly by mutableStateOf(prefs.wiredOnly)
+        private set
+    var connectOnBluetooth by mutableStateOf(prefs.connectOnBluetooth)
+        private set
+    var wifiDirect by mutableStateOf(prefs.wifiDirect)
+        private set
+    var carHotspot by mutableStateOf(prefs.carHotspot)
+        private set
+    var carHotspotName by mutableStateOf(prefs.carHotspotName)
+        private set
+    var carHotspotPassword by mutableStateOf(prefs.carHotspotPassword)
+        private set
+    var carHotspotFiveGhz by mutableStateOf(prefs.carHotspotFiveGhz)
+        private set
+
+    fun changeWiredOnly(value: Boolean) {
+        wiredOnly = value
+        prefs.wiredOnly = value
+        controller?.onWiredOnlyChanged()
+    }
+
+    /** 无线方式：0 车机开热点、1 直连、2 车机自带热点。下一次无线连接生效，正在进行的连接照旧。 */
+    fun changeWirelessMode(mode: Int) {
+        wifiDirect = mode == 1
+        carHotspot = mode == 2
+        prefs.wifiDirect = wifiDirect
+        prefs.carHotspot = carHotspot
+    }
+
+    fun changeCarHotspotName(value: String) {
+        carHotspotName = value
+        prefs.carHotspotName = value
+    }
+
+    fun changeCarHotspotPassword(value: String) {
+        carHotspotPassword = value
+        prefs.carHotspotPassword = value
+    }
+
+    fun changeCarHotspotFiveGhz(value: Boolean) {
+        carHotspotFiveGhz = value
+        prefs.carHotspotFiveGhz = value
+    }
+
+    fun changeConnectOnBluetooth(value: Boolean) {
+        connectOnBluetooth = value
+        prefs.connectOnBluetooth = value
+        controller?.onConnectOnBluetoothChanged()
+    }
+
+}
+
+@Composable
+internal fun rememberWirelessSettingsState(): WirelessSettingsState {
+    val context = LocalContext.current
+    return remember(context) { WirelessSettingsState(context) }
+}
+
+/** 只用数据线连接（默认关）：开着时无线关掉，提示自动连接手机不起作用。 */
+@Composable
+internal fun WiredOnlySetting(state: WirelessSettingsState) {
+    SwitchRow(
+        title = stringResource(R.string.settings_wireless_wired_only),
+        checked = state.wiredOnly,
+        description = stringResource(R.string.settings_wireless_wired_only_hint),
+        note = if (state.wiredOnly) stringResource(R.string.settings_wireless_wired_only_note) else null,
+        onCheckedChange = state::changeWiredOnly,
+    )
+}
+
+/** 自动连接手机（默认开；存储的键沿用旧名「蓝牙连上自动连接」）。 */
+@Composable
+internal fun ConnectOnBluetoothSetting(state: WirelessSettingsState) {
+    SwitchRow(
+        title = stringResource(R.string.settings_wireless_connect_on_bt),
+        checked = state.connectOnBluetooth,
+        description = stringResource(R.string.settings_wireless_connect_on_bt_hint),
+        onCheckedChange = state::changeConnectOnBluetooth,
+    )
+}
+
+/** 无线方式（默认车机开热点）：「5 GHz 直连」是试验功能；系统不支持时不显示这一行。 */
+@Composable
+internal fun WirelessModeSetting(state: WirelessSettingsState) {
+    if (!WirelessPreferences.wifiDirectSupported) return
+    ChoiceRow(
+        title = stringResource(R.string.settings_wireless_mode),
+        options = listOf(
+            stringResource(R.string.settings_wireless_mode_hotspot),
+            stringResource(R.string.settings_wireless_mode_direct),
+            stringResource(R.string.settings_wireless_mode_car),
+        ),
+        selected = when {
+            state.carHotspot -> 2
+            state.wifiDirect -> 1
+            else -> 0
+        },
+        description = stringResource(R.string.settings_wireless_mode_hint),
+        note = when {
+            state.carHotspot -> stringResource(R.string.settings_wireless_mode_car_note)
+            state.wifiDirect -> stringResource(R.string.settings_wireless_mode_direct_note)
+            else -> null
+        },
+    ) { state.changeWirelessMode(it) }
+    if (state.carHotspot) CarHotspotFields(state)
+}
+
+/** 车机自带热点的名称、密码（输入即保存，密码显示成圆点）和频段。 */
+@Composable
+private fun CarHotspotFields(state: WirelessSettingsState) {
+    GroupRow(spacing = 8.dp) {
+        OutlinedTextField(
+            value = state.carHotspotName,
+            onValueChange = { state.changeCarHotspotName(it) },
+            label = { Text(stringResource(R.string.settings_car_hotspot_name)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = state.carHotspotPassword,
+            onValueChange = { state.changeCarHotspotPassword(it) },
+            label = { Text(stringResource(R.string.settings_car_hotspot_password)) },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            supportingText = if (state.carHotspotName.isEmpty() || state.carHotspotPassword.isEmpty()) {
+                { Text(stringResource(R.string.settings_car_hotspot_missing)) }
+            } else {
+                null
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    ChoiceRow(
+        title = stringResource(R.string.settings_car_hotspot_band),
+        options = listOf("2.4 GHz", "5 GHz"),
+        selected = if (state.carHotspotFiveGhz) 1 else 0,
+        description = stringResource(R.string.settings_car_hotspot_band_hint),
+    ) { state.changeCarHotspotFiveGhz(it == 1) }
+}

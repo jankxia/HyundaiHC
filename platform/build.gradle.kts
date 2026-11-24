@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "io.github.gcbond.openhc.platform"
+    namespace = "com.jankxia.hyundaic.platform"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {

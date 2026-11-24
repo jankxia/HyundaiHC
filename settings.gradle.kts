@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "openhc"
+rootProject.name = "HyundaiHC"
 
 // 协议核心：纯 Kotlin/JVM，不依赖安卓，可在电脑上直接跑测试。按协议分层拆模块。
 include(":core:common")

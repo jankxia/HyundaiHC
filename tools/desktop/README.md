@@ -9,7 +9,7 @@
 ## 准备
 
 - JDK 17。
-- 连接参数 JSON：和构建安装包用的是同一份 `openhc-identity.json`（不在仓库里，格式见 `docs/identity.example.json`）。
+- 连接参数 JSON：和构建安装包用的是同一份 `hyundaic-identity.json`（不在仓库里，格式见 `docs/identity.example.json`）。
 - 一个放信任库的目录（不存在会自动以 0700 新建）。
 
 ## 运行
@@ -19,14 +19,14 @@
 ```sh
 ./gradlew :tools:desktop:installDist
 
-tools/desktop/build/install/openhc-desktop/bin/openhc-desktop \
-  --identity <你的 openhc-identity.json> \
-  --trust-dir ~/.openhc-desktop/trust \
+tools/desktop/build/install/hyundaic-desktop/bin/hyundaic-desktop \
+  --identity <你的 hyundaic-identity.json> \
+  --trust-dir ~/.hyundaic-desktop/trust \
   --ip 192.168.66.150 --port 32400 \
   --bt 02:12:34:56:78:9A \
   --width 1280 --height 720 --fps 30 \
-  --video-out /tmp/openhc-$(date +%Y%m%d-%H%M%S).h264 \
-  --carinfo-out /tmp/openhc-carinfo.bin
+  --video-out /tmp/hyundaic-$(date +%Y%m%d-%H%M%S).h264 \
+  --carinfo-out /tmp/hyundaic-carinfo.bin
 ```
 
 也可以经 Gradle 直接跑（相对路径按仓库根目录解析；Ctrl-C 经 Gradle 转发，不一定能按协议收尾，

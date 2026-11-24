@@ -10,14 +10,14 @@
    公开接口拿不到监听的实际通道号，要看反射等办法在这台设备、这个 targetSdk 下能不能用。
 2. **本机真实蓝牙地址**。二维码里要放车机的真实地址，普通应用一般只能读到占位值 `02:00:00:00:00:00`。
 
-这是独立的小应用：不依赖其他模块，也不进 OpenHC 安装包。
+这是独立的小应用：不依赖其他模块，也不进 HyundaiHC 安装包。
 
 ## 两个风味
 
 | 风味 | targetSdk | 包名 | 桌面名称 |
 |---|---|---|---|
-| `t36` | 36（与正式应用一致） | `io.github.gcbond.openhc.btprobe.t36` | 蓝牙探针 t36 |
-| `t26` | 26 | `io.github.gcbond.openhc.btprobe.t26` | 蓝牙探针 t26 |
+| `t36` | 36（与正式应用一致） | `com.jankxia.hyundaic.btprobe.t36` | 蓝牙探针 t36 |
+| `t26` | 26 | `com.jankxia.hyundaic.btprobe.t26` | 蓝牙探针 t26 |
 
 两个风味的清单和代码完全相同，只差 targetSdk。系统按应用的 targetSdk 决定放行哪些隐藏接口，所以把两个装在同一台设备上
 各测一遍，差别就是 targetSdk 造成的。minSdk 都是 23（安卓 6.0）。
@@ -30,14 +30,14 @@
 
 产物：
 
-- `tools/btprobe/build/outputs/apk/t36/debug/openhc-btprobe-t36-debug.apk`
-- `tools/btprobe/build/outputs/apk/t26/debug/openhc-btprobe-t26-debug.apk`
+- `tools/btprobe/build/outputs/apk/t36/debug/hyundaic-btprobe-t36-debug.apk`
+- `tools/btprobe/build/outputs/apk/t26/debug/hyundaic-btprobe-t26-debug.apk`
 
 安装（两个包名不同，可以同时装）：
 
 ```sh
-adb install -r openhc-btprobe-t36-debug.apk
-adb install -r openhc-btprobe-t26-debug.apk
+adb install -r hyundaic-btprobe-t36-debug.apk
+adb install -r hyundaic-btprobe-t26-debug.apk
 ```
 
 不方便用 adb 的车机：把 apk 拷到 U 盘，在车机的文件管理里点开安装。
@@ -61,8 +61,8 @@ adb install -r openhc-btprobe-t26-debug.apk
 - **屏幕**：每项显示 成功 / 失败 / 异常 / 跳过 和具体值，文字可以长按选择。
 - **复制全部结果**：纯文本，按分组列出。
 - **保存到文件**：存到 `Android/data/<包名>/files/btprobe-<风味>-<时间>.txt`，例如
-  `adb pull /sdcard/Android/data/io.github.gcbond.openhc.btprobe.t36/files/`。
-- **logcat**：每项一行，标签 `OpenHC-BtProbe`：`adb logcat -s OpenHC-BtProbe`。
+  `adb pull /sdcard/Android/data/com.jankxia.hyundaic.btprobe.t36/files/`。
+- **logcat**：每项一行，标签 `HyundaiHC-BtProbe`：`adb logcat -s HyundaiHC-BtProbe`。
 
 **地址的显示规则**：屏幕上是完整值；复制、存文件、logcat 里的本机地址和对端地址只留第一段和最后两段
 （如 `AA:**:**:**:EE:FF`），`02:00:00:00:00:00` 这类占位值不打码。即便打了码，结果里仍有型号、系统版本号等真实设备信息，
@@ -115,8 +115,8 @@ adb logcat -d | grep "Accessing hidden"
 
 ### 监听 A、监听 B
 
-用公开接口 `listenUsingInsecureRfcommWithServiceRecord` 开两个不加密、带服务记录的监听（服务名 `OpenHC-Probe-A` /
-`OpenHC-Probe-B`），**两个同时开着**再读通道号，每种读法单独记一项：
+用公开接口 `listenUsingInsecureRfcommWithServiceRecord` 开两个不加密、带服务记录的监听（服务名 `HyundaiHC-Probe-A` /
+`HyundaiHC-Probe-B`），**两个同时开着**再读通道号，每种读法单独记一项：
 
 | 读法 | 原理 |
 |---|---|
@@ -177,10 +177,10 @@ adb logcat -d | grep "Accessing hidden"
 「通道号与系统记录一致」才算真的可用。下面几种办法都要在**等待连接的 60 秒内**做（这时监听都开着），
 任选其一，越往下越有说服力：
 
-1. **dumpsys**：`adb shell dumpsys bluetooth_manager > bt.txt`，在里面搜 `OpenHC-Probe`、`fe35`、`fe36`、`RFCOMM`、
+1. **dumpsys**：`adb shell dumpsys bluetooth_manager > bt.txt`，在里面搜 `HyundaiHC-Probe`、`fe35`、`fe36`、`RFCOMM`、
    `channel`、`scn` 等字样。各版本的输出格式不同，搜不到不代表探针读错了，换下面的办法核对。
 2. **从另一台设备查 SDP**（只适用于 A、B，它们带服务记录）：在 Linux 电脑（BlueZ）上
-   `sdptool browse <车机蓝牙地址>`，找到服务名 `OpenHC-Probe-A` / `OpenHC-Probe-B`，看它的 RFCOMM 通道号。
+   `sdptool browse <车机蓝牙地址>`，找到服务名 `HyundaiHC-Probe-A` / `HyundaiHC-Probe-B`，看它的 RFCOMM 通道号。
 3. **按通道号直连**（这正是手机连 B 的方式）：在 Linux 电脑上
 
    ```sh

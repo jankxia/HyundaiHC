@@ -4,7 +4,7 @@
     <string name="settings_mic_enabled">车机麦克风</string>
     <string name="settings_mic_hint">打电话、用语音助手时，手机改用车机的麦克风（实验）。要录音权限；关掉或没有权限时手机用自己的麦克风。改动在下次连接时生效。</string>
     <string name="settings_mic_permission_granted">录音权限：已允许</string>
-    <string name="settings_mic_permission_missing">录音权限：还没有（点这里申请；拒绝过两次的话系统不再弹框，要去系统设置里给 OpenHC 打开「麦克风」权限）</string>
+    <string name="settings_mic_permission_missing">录音权限：还没有（点这里申请；拒绝过两次的话系统不再弹框，要去系统设置里给 HyundaiHC 打开「麦克风」权限）</string>
     <string name="settings_mic_profile">麦克风能力声明（调试）</string>
     <string name="settings_mic_profile_pcm">声明 16kHz 单声道 PCM（默认：手机会要 PCM）</string>
     <string name="settings_mic_profile_none">不声明能力（手机按自己的默认要，可能要 AAC；用来对比）</string>

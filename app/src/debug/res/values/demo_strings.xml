@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="demo_label">OpenHC 投屏演示</string>
+    <string name="demo_label">HyundaiHC 投屏演示</string>
     <string name="demo_refresh">屏幕刷新率 %1$s Hz，按它声明 %2$d fps；现在送帧 %3$d fps</string>
     <string name="demo_refresh_unknown">读不到</string>
     <string name="demo_touch_none">触摸：无（十字准星画在换算出的视频坐标上，应当正好在手指下面）</string>

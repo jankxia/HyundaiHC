@@ -4,7 +4,7 @@
     "modelId": "000000",
     "subModelId": "00",
     "brand": "car",
-    "deviceName": "OpenHC"
+    "deviceName": "HyundaiHC"
   },
   "nearbyKeys": {
     "rootKey": "AAAAAAAAAAAAAAAAAAAAAA==",

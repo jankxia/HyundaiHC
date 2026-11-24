@@ -28,17 +28,17 @@
     <string name="wireless_auto_hold_address">读不到车机蓝牙地址，不能自动连接手机。请在「设置」里填写。</string>
     <string name="wireless_auto_hold_foreground">应用在后台时系统不让开始连接，回到本应用时再连。</string>
     <string name="wireless_auto_hold_failed">这次没能开始连接（原因见日志）。</string>
-    <string name="wireless_auto_hold_ready">手机蓝牙连上车机、或打开 OpenHC 时，会自动连用无线连成功过的手机。</string>
+    <string name="wireless_auto_hold_ready">手机蓝牙连上车机、或打开 HyundaiHC 时，会自动连用无线连成功过的手机。</string>
     <string name="wireless_auto_hold_no_known">还没有用无线连成功过的手机：点「开始无线连接」扫码连一次，以后上车就会自动连上。</string>
-    <string name="wireless_auto_hold_overlay">自动连接手机还差悬浮窗权限：没有它，手机蓝牙连上时打不开 OpenHC，也开不了热点。请在「设置」的「启动」里打开。</string>
-    <string name="wireless_auto_hold_ui_not_shown">手机蓝牙连上了，但没能自动打开 OpenHC（多半缺悬浮窗权限，或被车机系统拦了），这次没有连。</string>
+    <string name="wireless_auto_hold_overlay">自动连接手机还差悬浮窗权限：没有它，手机蓝牙连上时打不开 HyundaiHC，也开不了热点。请在「设置」的「启动」里打开。</string>
+    <string name="wireless_auto_hold_ui_not_shown">手机蓝牙连上了，但没能自动打开 HyundaiHC（多半缺悬浮窗权限，或被车机系统拦了），这次没有连。</string>
 
     <!-- 设置页 -->
     <string name="settings_wireless_wired_only">只用数据线连接（默认关）</string>
     <string name="settings_wireless_wired_only_hint">关掉无线投屏，只能插线用：车机不自动连接手机、不开热点，不影响车机连 WiFi 上网。已经连上的无线投屏照常用到断开为止。</string>
     <string name="settings_wireless_wired_only_note">「只用数据线连接」开着时，「自动连接手机」不起作用。</string>
     <string name="settings_wireless_connect_on_bt">自动连接手机（默认开）</string>
-    <string name="settings_wireless_connect_on_bt_hint">手机蓝牙连上车机（上车时手机会自动连车机蓝牙），或者打开 OpenHC 时，车机自动去连用无线连成功过的手机，不用扫码。手机热点关着时手机上不用点；开着时手机会问一次要不要关热点。要有悬浮窗权限，比亚迪车机还要在「选择禁止后台启动项」里放行 OpenHC（见下面）。新手机先点「开始无线连接」扫码连一次。</string>
+    <string name="settings_wireless_connect_on_bt_hint">手机蓝牙连上车机（上车时手机会自动连车机蓝牙），或者打开 HyundaiHC 时，车机自动去连用无线连成功过的手机，不用扫码。手机热点关着时手机上不用点；开着时手机会问一次要不要关热点。要有悬浮窗权限，比亚迪车机还要在「选择禁止后台启动项」里放行 HyundaiHC（见下面）。新手机先点「开始无线连接」扫码连一次。</string>
     <string name="settings_wireless_debug">无线调试（BLE 广播，下次开始等待时生效）</string>
     <string name="settings_wireless_republish">每隔多久换序列号重新发布</string>
     <string name="settings_wireless_republish_off">不重发</string>
@@ -48,5 +48,5 @@
     <string name="settings_wireless_random">广播里声明「车机用随机地址广播」（默认关）</string>
     <string name="settings_wireless_random_hint">只在确认车机广播的发送地址不是车机蓝牙地址时试（用别的手机装 BLE 扫描工具对比）；手机看到这个声明以后怎么找车机，没有验证过。</string>
     <string name="settings_wireless_gatt">同时挂 GATT 服务（默认开）</string>
-    <string name="settings_wireless_gatt_hint">实测的手机回连时不连它；另一类手机系统可能会连上来取车机地址。日志 OpenHC-Wireless 会记下有没有手机来连、写了多少字节。</string>
+    <string name="settings_wireless_gatt_hint">实测的手机回连时不连它；另一类手机系统可能会连上来取车机地址。日志 HyundaiHC-Wireless 会记下有没有手机来连、写了多少字节。</string>
 </resources>

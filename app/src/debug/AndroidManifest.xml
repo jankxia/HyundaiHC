@@ -5,7 +5,7 @@
         <!--
             仅调试构建：投屏画面与触控的演示。不连手机，播放运行时现生成的合成码流，
             用来在车机上检查解码、显示比例、全屏和触摸换算。不放桌面图标（车机桌面上多一个图标碍事），需要时用 adb 打开：
-            adb shell am start -n io.github.gcbond.openhc/.demo.ProjectionDemoActivity
+            adb shell am start -n com.jankxia.hyundaic/.demo.ProjectionDemoActivity
         -->
         <activity
             android:name=".demo.ProjectionDemoActivity"

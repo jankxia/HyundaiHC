@@ -97,7 +97,7 @@ runner.submit { now -> bridge.onWifiNetworkReady(id, network, now) }
 ### 交接顺序（车机视角）
 
 ```
- 车机（OpenHC）                                                         手机
+ 车机（HyundaiHC）                                                         手机
  ───────────────────────────────────────────────────────────────────────────────
  ① 开蓝牙控制监听：RFCOMM、服务 UUID 0000FE35-…、不加密（这时还不开热点）
     → PairingReady：显示二维码和 6 位连接码                      扫码 ────

@@ -4,7 +4,7 @@
   得到 16 字节会话密钥。
 - 再次连接：用首次配对保存的长期身份做免码认证（STS：X25519 临时密钥 + Ed25519 互签），得到新的 16 字节会话密钥。
 - 外层的 HiCar 认证 JSON（`oper_type` 1/3）的解析与生成，以及认证连接上的分帧。
-- 长期身份与信任列表的存储接口（[`TrustStore`](src/main/kotlin/io/github/gcbond/openhc/core/auth/TrustStore.kt)），
+- 长期身份与信任列表的存储接口（[`TrustStore`](src/main/kotlin/com/jankxia/hyundaic/core/auth/TrustStore.kt)），
   core 里只有接口、内存实现和版本化的持久格式；落盘与私钥保护由平台层实现。
 
 ## 承载

@@ -42,7 +42,7 @@
     <string name="wireless_notice_hotspot_unsupported">这台车机是安卓 8.0 以下，没有本地热点，用不了无线连接。请插数据线连接。</string>
     <string name="wireless_notice_permissions">无线连接需要这些权限：%1$s。请点「授权」，在系统框里允许。</string>
     <string name="wireless_notice_permissions_permanent">无线连接需要这些权限：%1$s。系统不再弹框了，请点「去系统设置」，在本应用的权限里打开。</string>
-    <string name="wireless_notice_precise_location">请在系统框里选「精确位置」：开热点要用精确位置权限（OpenHC 不读取位置）。</string>
+    <string name="wireless_notice_precise_location">请在系统框里选「精确位置」：开热点要用精确位置权限（HyundaiHC 不读取位置）。</string>
     <string name="wireless_notice_wired_active">有线连接正在进行。先在首页「有线连接」里点「停止」，再用无线连接。</string>
     <string name="wireless_notice_wireless_active">无线连接正在进行。先在首页「无线连接」里点「停止」，再用有线连接。</string>
     <string name="wireless_notice_ended">上次无线连接结束：%1$s</string>
@@ -63,7 +63,7 @@
     <string name="wireless_end_internal">内部错误（%1$s）</string>
 
     <!-- 通知 -->
-    <string name="wireless_notification_waiting">OpenHC 无线连接</string>
+    <string name="wireless_notification_waiting">HyundaiHC 无线连接</string>
     <string name="wireless_notification_scan_text">请用手机扫描车机屏幕上的二维码</string>
-    <string name="wireless_notification_connecting">OpenHC 正在无线连接手机</string>
+    <string name="wireless_notification_connecting">HyundaiHC 正在无线连接手机</string>
 </resources>

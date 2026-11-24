@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """公开代码树检查：仓库里不许出现凭据（见 SECURITY.md）。
 
-连接参数 openhc-identity.json、安装包签名配置、证书、密钥库、私钥都不进仓库。
+连接参数 hyundaic-identity.json、安装包签名配置、证书、密钥库、私钥都不进仓库。
 只查 git 管着的文件，发现问题就逐条列出并以非 0 退出。CI 在构建前跑，本地提交前也可以跑。
 """
 import json
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # 证书、密钥库、私钥、安装包：一律不进仓库。
 BLOCKED_SUFFIXES = {".jks", ".keystore", ".p12", ".pfx", ".pk8", ".pem", ".key", ".apk", ".aab"}
 # 连接参数文件、本机配置；名字里带 signing.properties 的签名配置。
-BLOCKED_NAMES = {"openhc-identity.json", "local.properties"}
+BLOCKED_NAMES = {"hyundaic-identity.json", "local.properties"}
 BLOCKED_NAME_PARTS = ("signing.properties",)
 PRIVATE_KEY_BLOCK = re.compile(rb"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")
 # 只有这份示例可以带连接参数的结构，而且密钥必须是全零占位值。

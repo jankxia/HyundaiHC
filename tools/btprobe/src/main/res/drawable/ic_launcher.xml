@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 探针图标：深色圆底 + 白色放大镜，和 OpenHC 本体图标区分开。 -->
+<!-- 探针图标：深色圆底 + 白色放大镜，和 HyundaiHC 本体图标区分开。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
     android:height="48dp"

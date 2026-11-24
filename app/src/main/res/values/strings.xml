@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenHC</string>
-    <string name="home_tagline">开源的华为手机投屏接收端，装在车机上使用。与华为、比亚迪等公司无关。</string>
+    <string name="app_name">HyundaiHC</string>
+    <string name="home_tagline">现代帕里斯帝车机的华为手机投屏接收端。与华为、现代汽车等公司无关。</string>
     <string name="home_version">版本 %1$s</string>
 
     <!-- 操作 -->
@@ -38,7 +38,7 @@
     <string name="hint_preparing">正在读取配置、准备监听…</string>
     <string name="hint_waiting_for_phone">用数据线把华为手机插到车机的 USB 口。手机保持解锁，并关闭 USB 调试。</string>
     <string name="hint_usb_debugging">手机开着 USB 调试时不响应车机。请在手机的「开发人员选项」里关闭「USB 调试」，关闭后会自动继续。</string>
-    <string name="hint_usb_permission_phone">请在车机弹出的对话框里允许 OpenHC 访问这台手机。</string>
+    <string name="hint_usb_permission_phone">请在车机弹出的对话框里允许 HyundaiHC 访问这台手机。</string>
     <string name="hint_usb_permission_network">手机已经切换过来，请再允许一次 USB 访问。</string>
     <string name="hint_sending_car_info">正在通知手机切换…</string>
     <string name="hint_phone_switch">等待手机响应。第一次连接这台车机时，手机上会弹出确认框，请点「连接」。</string>
@@ -126,12 +126,12 @@
 
     <!-- 通知 -->
     <string name="notification_channel_name">投屏连接</string>
-    <string name="notification_projecting">OpenHC 正在投屏</string>
-    <string name="notification_projecting_text">点按回到 OpenHC</string>
-    <string name="notification_connecting">OpenHC 正在连接手机</string>
+    <string name="notification_projecting">HyundaiHC 正在投屏</string>
+    <string name="notification_projecting_text">点按回到 HyundaiHC</string>
+    <string name="notification_connecting">HyundaiHC 正在连接手机</string>
     <string name="notification_connecting_text">请按车机屏幕上的提示操作</string>
     <string name="notification_pairing_text">请在手机上输入车机屏幕上的连接码</string>
-    <string name="notification_waiting">OpenHC 正在等待手机</string>
+    <string name="notification_waiting">HyundaiHC 正在等待手机</string>
     <string name="notification_waiting_text">用数据线把华为手机插到车机上</string>
     <string name="notification_replug_text">请拔掉数据线，等 5 秒以上再插回</string>
     <string name="notification_stopping_text">正在断开连接</string>

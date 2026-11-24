@@ -1,22 +1,22 @@
 // 蓝牙能力探针：在真机上实测普通应用能不能拿到 RFCOMM 监听的实际通道号、能不能读到本机真实蓝牙地址。
-// 独立的小应用，不依赖其他模块，也不被其他模块依赖，不进 OpenHC 安装包。用法见 README.md。
+// 独立的小应用，不依赖其他模块，也不被其他模块依赖，不进 HyundaiHC 安装包。用法见 README.md。
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
-// 安装包命名为 openhc-btprobe-<风味>-<构建类型>.apk。
+// 安装包命名为 hyundaic-btprobe-<风味>-<构建类型>.apk。
 base {
-    archivesName.set("openhc-btprobe")
+    archivesName.set("hyundaic-btprobe")
 }
 
 android {
-    namespace = "io.github.gcbond.openhc.btprobe"
+    namespace = "com.jankxia.hyundaic.btprobe"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "io.github.gcbond.openhc.btprobe"
+        applicationId = "com.jankxia.hyundaic.btprobe"
         minSdk = libs.versions.minSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"

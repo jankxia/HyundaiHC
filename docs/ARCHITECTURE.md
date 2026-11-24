@@ -3,7 +3,7 @@
 ## 一次有线连接的数据流
 
 ```
-华为手机 ══ USB 数据线 ══ 车机（OpenHC）
+华为手机 ══ USB 数据线 ══ 车机（HyundaiHC）
 
  ① platform.usb      识别手机 → 申请 USB 权限 → 发 carInfo（字节由 core.nearby 生成）
                       → 手机切换成 USB 网卡
@@ -71,7 +71,7 @@ tools:desktop ─▶ core:session        （开发工具，不进安装包）
 ### 交接顺序
 
 ```
- 车机（OpenHC）                                                  手机
+ 车机（HyundaiHC）                                                  手机
  ────────────────────────────────────────────────────────────────────────────
  ① 开控制监听（默认通配地址、只认连到车机 IP 的连接）
     → ControlListening：此后才发 carInfo（USB 拉起不归本模块）
@@ -193,5 +193,5 @@ tools:desktop ─▶ core:session        （开发工具，不进安装包）
 
 ## 车机固定参数
 
-车型编号、品牌、名称等连接参数放在 `openhc-identity.json` 里。它不进仓库，
+车型编号、品牌、名称等连接参数放在 `hyundaic-identity.json` 里。它不进仓库，
 构建时从本机目录打进安装包（见 `app/build.gradle.kts`，格式见 `docs/identity.example.json`），应用每次开始连接时读它。改了车型编号，手机会把车机当成另一台车，要重新配对一次。
