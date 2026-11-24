@@ -299,4 +299,53 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 
 **车机操作顺序（真机验证用）**：车机通电 → 在车机设置里把 WiFi 开成**热点/AP 模式**（不是普通 WiFi 开关）→ 启动 HyundaiHC → 填热点名称密码并勾启用 → 点"开始无线连接" → 手机扫码。
 
-**仍阻塞真机验证的前置**：`identity` 真实参数仍为占位（`IdentityMissing`，模拟器点"开始无线"已确认卡在这一步），无真实参数出不了二维码。
+**真机验证的前置已解除**：identity 真实参数已从上游公开分发的 `OpenHC-0.2.0.apk`（SHA-256 与官方校验值一致）解包取得，写入 `identity/hyundaic-identity.json`，构建脚本打进 `assets/hyundaic-identity.json`（424 字节）。模拟器上已确认身份加载成功、无线启动越过身份检查，卡在"车机蓝牙地址 / 定位权限"（模拟器无真实蓝牙硬件，属环境限制）。
+
+---
+
+### 阶段 5：全量 lint 清账 —— API19 防线（2026-11-24）
+
+> 起因：之前靠人工 grep + 版本分支自查，漏了一大批高版本 API 调用。改用 Android Lint 的 `NewApi` 做机器普查，一次暴露出 platform **155 个错误**、app **5 个错误**，全部是 minSdk 19 下会 `NoSuchMethodError` / `NoClassDefFoundError` 的调用点。本轮把这些清到 **0**。
+
+**platform：155 → 0**
+
+| 位置 | 实际要求 | 处理 |
+| --- | --- | --- |
+| `AudioPlayer` 的 `write(ByteBuffer,int,int,int)` | API 23 | 4.4 走三参数 `write(byte[],int,int)` |
+| `AudioPlayer.setVolume(float)` | API 21 | 4.4 用 `setStereoVolume(l, r)` |
+| `AudioPlayer.bufferSizeInFrames` | API 23 | 4.4 按申请的字节数 / 每帧字节数换算（仅统计用） |
+| `AudioPlayer` / `MicAacEncoder` / `VideoDecoder` 的 `getInputBuffer/getOutputBuffer(idx)` | API 21 | 4.4 用 `getInputBuffers()[i]` / `getOutputBuffers()[i]` |
+| `PcmTrack` 的 `AudioTrack.Builder` | **API 23**（不是 21） | 门槛从 LOLLIPOP 改 M；21/22 与 4.4 一样走老构造 |
+| `AudioUsage.attributes()/trackAttributes()` | API 21 | 标 `@TargetApi(21)`，4.4 只用 `streamType()` |
+| `DisplayRefreshRate` 的 `Display.getMode()` | API 23 | 4.4 退回 `getRefreshRate()` |
+| 同上 `appVsyncOffsetNanos` / `presentationDeadlineNanos` | API 21 | 4.4 记 0 |
+| `DecoderCatalog` 的 `MediaCodecList()` / `codecInfos` / `videoCapabilities` | API 21 | 4.4 返回空清单，调用方退回 `createDecoderByType`；尺寸检查一律视为支持 |
+| `WifiStatus` / `LocalHotspot` / `WifiDirectGroup` 的 `is5GHzBandSupported`、`WifiInfo.getFrequency` | API 21 | 4.4 记"不支持 / 0" |
+| 同上 `ConnectivityManager.NetworkCallback` / `requestNetwork` | API 21 | 4.4 跳过"按住蜂窝网络"这一步 |
+| `MediaKeySession` 的 `MediaSession` / `PlaybackState` | API 21 | 拆成外壳 + `MediaKeySession21`；4.4 的会话 `supported=false`、不加载高版本类，方向盘键只在界面前台时生效 |
+| `VideoDecoder` 的 `MediaCodec.setCallback` | **API 23**（不是 21） | `configureLocked` 开头按版本拒绝，经 `onDecoderUnavailable` 明说"C 系统没有投屏解码接口"，不再崩 |
+| 同上 `setOnFrameRenderedListener` / `setOutputSurface` / `CodecException` | API 23 | 随上面的门禁一并不执行 |
+| `BleBeacon` / `LePairingPeripheral` 的 BLE 广播 | API 21 | 类标 `@TargetApi(21)`；`support()` 在 4.4 返回"BLE 广播要安卓 5.0 起" |
+| `NcmUsbLink` 的 `setInterface` / `alternateSetting` | API 21 | `open()` 在 4.4 直接抛 `IOException` 说明有线要 5.0 起 |
+| `UsbDescriber` 的 `alternateSetting` | API 21 | 4.4 记 0 |
+| `TunInterface` 的 `android.system.Os` | API 21 | 类标 `@TargetApi(21)`；`VpnTunnel.open()` 在 4.4 直接抛 `IOException` |
+
+**app：5 → 0**
+
+- **主题**（`AndroidManifest.xml`）：原来直接用 `@android:style/Theme.Material.NoActionBar`（API 21），**安卓 4.4 上 Activity 启动就会崩**。改成自定义 `@style/AppTheme`：`values` 用 `Theme.Holo.NoActionBar`，`values-v21` 用 Material。这是本轮最要紧的一处。
+- `BootStart.canDrawOverlays`：`Settings.canDrawOverlays` 是 API 23，4.4 按"有权限"处理。
+- 信任库目录：`Context.getNoBackupFilesDir()` 是 API 21 → 抽成 `trust/TrustDirectory.kt` 的 `noBackupDirectory()`，4.4 落到 `filesDir/no_backup`。
+- `DiagnosticsExport`：`checkSelfPermission` 是 API 23 → 包进 `granted()`（`@TargetApi(23)`）+ 版本判断。
+
+**结果**
+
+- `:platform:lintDebug` 0 errors / 28 warnings；`:app:lintDebug` 0 errors / 379 warnings（其中 373 条是归档 Compose 界面后遗留的未用字符串资源，不影响运行）。
+- `assembleDebug` / `assembleRelease` 均通过；APK `minSdk 19`、包名 `com.jankxia.hyundaic`、label `HyundaiHC`、`assets/hyundaic-identity.json` 424 字节。
+
+**4.4 上现在实际能做什么**（诚实口径）
+
+| 能 | 不能 |
+| --- | --- |
+| 启动、身份加载、经典蓝牙配对与扫码、PCM 播放与麦克风、界面前台时的方向盘键、车机自带热点 / WiFi 直连两条数据通道 | 投屏画面（`VideoDecoder` 门禁）、有线 NCM（`setInterface` 缺失）、有线 VPN TUN（`android.system.Os` 缺失）、BLE 外设、本地热点、后台媒体键 |
+
+也就是说：4.4 车机能"连上、有声音"，**没有画面**。要画面得单独做一套同步轮询版解码器（`dequeueInputBuffer/dequeueOutputBuffer` + `getInputBuffers()` 数组，Surface 变就重建解码器），那是独立一大块，且必须真机验证，本轮没动。
