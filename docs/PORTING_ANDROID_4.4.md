@@ -206,7 +206,7 @@ app 非 UI 业务代码实际用到的 AndroidX（已逐个核对 import）：
 | 依赖 | 现状 | 处置 |
 | --- | --- | --- |
 | Compose BOM / activity-compose / ui / material3 / ui-tooling(-preview) | minSdk 21，硬下限 | **整包移除**（app 与 btprobe）；外壳 UI 阶段 3 用传统 View 重写 |
-| `androidx.core:core-ktx:1.16.0` | 现代 AndroidX 默认 minSdk 21 | 降到仍支持 API 19 的老线（官方：core 1.13.0 起 minSdk 提到 19；1.12.0 及更早更低，候选 1.9.0–1.12.0，**引入时以 AAR manifest 实测 minSdk 为准**）；所用 `ContextCompat`、`core.content.edit`、`IntentCompat`、`core.net.toUri`、`WindowCompat`、`WindowInsetsCompat/ControllerCompat`、`NotificationCompat/ManagerCompat/ChannelCompat`、`ServiceCompat`、`ViewCompat` 需在所选版本复核齐备，缺哪个改 framework 自写薄封装 |
+| `androidx.core:core-ktx:1.16.0` | 现代 AndroidX 默认 minSdk 21 | **降为 1.12.0**（已实测：core 1.13.0 才把 minSdk 提到 19，1.12.0 及更低兼容 API 19；classes.jar 已核验含 `ContextCompat`、`IntentCompat`、`NotificationChannelCompat/ManagerCompat`、`ServiceCompat`、`WindowCompat/WindowInsetsCompat/WindowInsetsControllerCompat` 全部所用类）；`core.content.edit`、`core.net.toUri` 等 ktx 扩展在 1.12.0 同版本随附，缺哪个再改 framework 自写薄封装 |
 | `androidx.activity:activity-compose:1.10.1`（ComponentActivity、ActivityResultContracts） | minSdk 21 | **移除**；`MainActivity` 改继承 `android.app.Activity`；运行时权限改 `onRequestPermissionsResult`；VPN 授权改 `startActivityForResult` |
 | `kotlinx-coroutines-core:1.10.2` | core JVM 编译已过 | 暂留；老 ART 上 StateFlow/调度实测，出问题再降 1.6.x |
 | `kotlinx-serialization-json:1.8.1` | 纯 Kotlin | 暂留；必要时降 1.5.x |
