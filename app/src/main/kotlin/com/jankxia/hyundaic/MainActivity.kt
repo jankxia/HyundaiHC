@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
@@ -17,6 +18,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -69,6 +71,8 @@ class MainActivity : Activity() {
     private var lastQrContent: String? = null
     private lateinit var startWirelessBtn: Button
     private lateinit var stopWirelessBtn: Button
+    /** 只有需要时才显示的那一排按钮（重试 / 授权 VPN / 重置信任库）。 */
+    private lateinit var extraButtonsRow: LinearLayout
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val poll = object : Runnable {
@@ -136,76 +140,81 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- 界面骨架
 
     private fun buildLayout() {
-        val pad = (16 * resources.displayMetrics.density).toInt()
+        val pad = dp(16)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
         }
 
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = getString(R.string.app_name)
             textSize = 22f
+        })
+
+        statusView = TextView(this).apply { textSize = 16f; setPadding(0, dp(6), 0, 0) }
+        // 空文本的提示行不占位置：原来给它们留固定内边距，界面上会凭空多出一段空白。
+        noticeView = TextView(this).apply {
+            textSize = 14f
+            setPadding(0, dp(8), 0, 0)
+            visibility = View.GONE
         }
-        statusView = TextView(this).apply { textSize = 16f; setPadding(0, pad, 0, 0) }
-        noticeView = TextView(this).apply { textSize = 14f; setPadding(0, pad / 2, 0, 0) }
-        pinView = TextView(this).apply { textSize = 18f; setPadding(0, pad, 0, 0) }
-
-        startBtn = Button(this).apply { text = getString(R.string.action_start); setOnClickListener { requestStart(StartKind.START) } }
-        stopBtn = Button(this).apply { text = getString(R.string.action_stop); setOnClickListener { controller.stop() } }
-        retryBtn = Button(this).apply { text = getString(R.string.action_retry_now); setOnClickListener { controller.retryNow() } }
-        grantVpnBtn = Button(this).apply { text = getString(R.string.action_grant_vpn); setOnClickListener { requestStart(StartKind.START) } }
-        resetTrustBtn = Button(this).apply { text = getString(R.string.action_reset_trust); setOnClickListener { controller.resetTrustStoreAndStart() } }
-
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, pad, 0, 0)
-            addView(startBtn)
-            addView(stopBtn)
-            addView(retryBtn)
-            addView(grantVpnBtn)
-            addView(resetTrustBtn)
+        pinView = TextView(this).apply {
+            textSize = 18f
+            setPadding(0, dp(8), 0, 0)
+            visibility = View.GONE
         }
-
-        root.addView(title)
         root.addView(statusView)
         root.addView(noticeView)
         root.addView(pinView)
-        root.addView(buttons)
-        root.addView(buildWirelessSection(pad))
-        root.addView(buildHotspotConfig(pad))
-        setContentView(root)
+
+        startBtn = actionButton(getString(R.string.action_start)) { requestStart(StartKind.START) }
+        stopBtn = actionButton(getString(R.string.action_stop)) { controller.stop() }
+        retryBtn = actionButton(getString(R.string.action_retry_now)) { controller.retryNow() }
+        grantVpnBtn = actionButton(getString(R.string.action_grant_vpn)) { requestStart(StartKind.START) }
+        resetTrustBtn = actionButton(getString(R.string.action_reset_trust)) { controller.resetTrustStoreAndStart() }
+        retryBtn.visibility = View.GONE
+        grantVpnBtn.visibility = View.GONE
+        resetTrustBtn.visibility = View.GONE
+
+        // 一行按钮按个数等分宽度：横屏下一行塞五个按钮，后面的会被压成两个字宽。
+        root.addView(buttonRow(startBtn, stopBtn))
+        extraButtonsRow = buttonRow(retryBtn, grantVpnBtn, resetTrustBtn).apply { visibility = View.GONE }
+        root.addView(extraButtonsRow)
+
+        root.addView(buildWirelessSection())
+        root.addView(buildHotspotConfig())
+
+        // 车机横屏高度只有 720px，热点配置区排在下面很容易出界；用 ScrollView 兜住，出界也能滚到。
+        setContentView(ScrollView(this).apply {
+            isFillViewport = false
+            addView(root)
+        })
         loadHotspotConfig()
     }
 
-    /** 最小无线入口：开始/停止 + 状态行（二维码内容先以文本显示，扫码图待阶段 3 补回）。 */
-    private fun buildWirelessSection(pad: Int): View {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, pad, 0, 0)
-        }
-        box.addView(TextView(this).apply { text = "无线连接"; textSize = 16f })
-        wirelessStatusView = TextView(this).apply { textSize = 14f }
+    /** 最小无线入口：开始/停止 + 状态行 + 二维码。 */
+    private fun buildWirelessSection(): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(sectionTitle("无线连接"))
+
+        wirelessStatusView = TextView(this).apply { textSize = 14f; setPadding(0, dp(6), 0, 0) }
         qrView = ImageView(this).apply {
             visibility = View.GONE
-            setPadding(0, pad / 2, 0, 0)
+            scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(0xFFFFFFFF.toInt())
         }
-        startWirelessBtn = Button(this).apply {
-            text = "开始无线连接（出二维码）"
-            setOnClickListener { wireless.start() }
-        }
-        stopWirelessBtn = Button(this).apply {
-            text = "停止无线"
-            setOnClickListener { wireless.stop() }
-        }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(startWirelessBtn)
-            addView(stopWirelessBtn)
-        }
+        startWirelessBtn = actionButton("开始无线连接") { wireless.start() }
+        stopWirelessBtn = actionButton("停止无线") { wireless.stop() }
+
         box.addView(wirelessStatusView)
-        box.addView(qrView)
-        box.addView(row)
+        box.addView(
+            qrView,
+            LinearLayout.LayoutParams(dp(240), dp(240)).apply {
+                topMargin = dp(12)
+                gravity = Gravity.CENTER_HORIZONTAL
+            },
+        )
+        box.addView(buttonRow(startWirelessBtn, stopWirelessBtn))
         return box
     }
 
@@ -213,28 +222,97 @@ class MainActivity : Activity() {
      * 车机自带热点的最小配置入口（安卓 8.0 以下走这条路）：车主先在车机设置里把 WiFi 开成热点，
      * 再把热点名称、密码填到这里、勾上启用。临时骨架用，完整设置页待阶段 3 补回。
      */
-    private fun buildHotspotConfig(pad: Int): View {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, pad, 0, 0)
-        }
+    private fun buildHotspotConfig(): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(sectionTitle("车机自带热点"))
         box.addView(TextView(this).apply {
-            text = "车机自带热点（安卓 8 以下走这条：先在车机设置里打开热点）"
+            text = "安卓 8.0 以下走这条：先在车机设置里把 WiFi 开成热点，再填这里并勾上启用"
+            textSize = 13f
+            setPadding(0, dp(6), 0, dp(4))
+        })
+        hotspotNameInput = EditText(this).apply {
+            hint = "热点名称（SSID）"
             textSize = 14f
-        })
-        hotspotNameInput = EditText(this).apply { hint = "热点名称（SSID）"; textSize = 14f }
-        hotspotPassInput = EditText(this).apply { hint = "热点密码"; textSize = 14f }
-        hotspotFiveGhz = CheckBox(this).apply { text = "热点开在 5 GHz"; textSize = 14f }
-        hotspotEnable = CheckBox(this).apply { text = "启用（不开本地热点，用车机这个热点）"; textSize = 14f }
-        box.addView(hotspotNameInput)
-        box.addView(hotspotPassInput)
-        box.addView(hotspotFiveGhz)
-        box.addView(hotspotEnable)
-        box.addView(Button(this).apply {
-            text = "保存热点配置"
-            setOnClickListener { saveHotspotConfig() }
-        })
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            inputField(this)
+        }
+        hotspotPassInput = EditText(this).apply {
+            hint = "热点密码"
+            textSize = 14f
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            inputField(this)
+        }
+        hotspotFiveGhz = CheckBox(this).apply { text = "5 GHz"; textSize = 14f; minHeight = dp(40) }
+        hotspotEnable = CheckBox(this).apply {
+            text = "启用（不开本地热点，直接用车机这个热点）"
+            textSize = 14f
+            minHeight = dp(40)
+        }
+
+        // 车机横屏高度有限：两样配置并排，能把「启用 + 保存」一起留在首屏。
+        box.addView(
+            fieldRow(this, hotspotNameInput, hotspotPassInput),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(6) },
+        )
+        box.addView(fieldRow(this, hotspotFiveGhz, hotspotEnable))
+        box.addView(
+            actionButton("保存热点配置") { saveHotspotConfig() },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(10) },
+        )
         return box
+    }
+
+    /** 输入框在深色主题下只有一条下划线，车机上不好看出能点：加一层浅底色和内部留白。 */
+    private fun inputField(view: EditText): EditText = view.apply {
+        setBackgroundColor(0x22FFFFFF)
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+    }
+
+    /** 一行并排放若干个控件，宽度按个数等分。 */
+    private fun fieldRow(context: android.content.Context, vararg views: View): LinearLayout =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            views.forEachIndexed { index, view ->
+                addView(
+                    view,
+                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (index > 0) marginStart = dp(10)
+                    },
+                )
+            }
+        }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun actionButton(label: String, onClick: () -> Unit): Button = Button(this).apply {
+        text = label
+        textSize = 15f
+        minHeight = dp(48)
+        setOnClickListener { onClick() }
+    }
+
+    /** 一行按钮，宽度按个数等分。 */
+    private fun buttonRow(vararg buttons: View): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        setPadding(0, dp(10), 0, 0)
+        buttons.forEachIndexed { index, view ->
+            addView(
+                view,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (index > 0) marginStart = dp(10)
+                },
+            )
+        }
+    }
+
+    private fun sectionTitle(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 16f
+        setPadding(0, dp(16), 0, 0)
     }
 
     private fun loadHotspotConfig() {
@@ -266,8 +344,12 @@ class MainActivity : Activity() {
     private fun renderState() {
         val s = controller.state.value
         statusView.text = "阶段：${s.phase}　步骤：${s.step ?: "—"}"
-        noticeView.text = s.notice?.toString() ?: ""
-        pinView.text = if (s.pinCode != null) "连接码：${s.pinCode}" else ""
+        val notice = s.notice?.toString()
+        noticeView.text = notice ?: ""
+        noticeView.visibility = if (notice == null) View.GONE else View.VISIBLE
+        val pin = s.pinCode
+        pinView.text = if (pin != null) "连接码：$pin" else ""
+        pinView.visibility = if (pin == null) View.GONE else View.VISIBLE
 
         val identityLoaded = IdentityLoader.load(this) is IdentityLoader.Result.Loaded
         val idle = s.phase == com.jankxia.hyundaic.connection.Phase.IDLE
@@ -276,6 +358,14 @@ class MainActivity : Activity() {
         retryBtn.visibility = if (s.phase == com.jankxia.hyundaic.connection.Phase.REPLUG_REQUIRED) View.VISIBLE else View.GONE
         grantVpnBtn.visibility = if (idle && s.notice is Notice.VpnConsentRequired) View.VISIBLE else View.GONE
         resetTrustBtn.visibility = if (idle && s.notice is Notice.TrustStoreCorrupt) View.VISIBLE else View.GONE
+        extraButtonsRow.visibility = if (
+            retryBtn.visibility == View.VISIBLE || grantVpnBtn.visibility == View.VISIBLE ||
+            resetTrustBtn.visibility == View.VISIBLE
+        ) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
 
         val w = wireless.state.value
         wirelessStatusView.text = buildString {
@@ -284,7 +374,7 @@ class MainActivity : Activity() {
             if (w.attempt > 0) append("　第 ").append(w.attempt).append(" 次")
             w.notice?.let { append("\n原因：").append(it) }
             w.pinCode?.let { append("\n连接码：").append(it) }
-            w.qrCode?.let { append("\n二维码内容：").append(it) }
+            // 二维码内容是一长串 URI，只在二维码图里体现；写进文本会把版面撑乱，要看细节去日志。
         }
         startWirelessBtn.isEnabled = !w.active && idle
         stopWirelessBtn.isEnabled = w.active
