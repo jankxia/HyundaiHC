@@ -450,3 +450,33 @@ BUILD SUCCESSFUL in 3m 40s
 - 4.4 没有 `addAllowedApplication`：TUN 不只对本应用生效。当前只往 `192.168.66.0/24` 加了一条路由，影响面被限制在这一网段，但严格说不是应用级隔离。
 - **以上全部只有编译、lint 与 JVM 单测支撑，没有 API 19 真机/镜像证据**（本地无 4.4 镜像，见第 8 节）；雷电 API 28 跑的是 `SDK_INT >= 21` 分支，走的仍是 `setInterface`/`TunInterface`，测不到本轮新增的 4.4 路径。
 
+
+## 阶段 8：无线方向纠偏 —— 车机是 WiFi 客户端，热点由手机开
+
+**起因（车主实测前提）**：帕里斯帝这台车机没有开热点的能力，它不是"能开热点的车机"，而是"能连 WiFi 热点的车机"。原代码把无线数据面的默认模型写成"车机开热点、手机连车机"（`MainActivity` 的分区名叫"车机自带热点"，`WirelessPreferences.carHotspot*`、`LocalHotspot`(API 26)、`CarHotspot` 全按这个假设写），在这台车机上永远走不通。
+
+**正确的模型**：手机开个人热点（建议 2.4 GHz，4.4 车机多半只有 2.4 GHz 射频），车机作为 STA 连上它；认证本身仍走蓝牙（设备握手 + 业务 19 的 RFCOMM 子通道），WiFi 只承载投屏数据面，所以热点方向只影响画面，不影响配对与连接码。
+
+**4.4 反而更简单**：`WifiManager.addNetwork()` / `enableNetwork()` / `configuredNetworks` / `connectionInfo` 都是 API 1，安卓 4.4 上普通应用就能改 WiFi 连接，不需要系统签名、也不需要 root（安卓 10 起才收紧到需要系统权限）。只要 `ACCESS_WIFI_STATE` / `CHANGE_WIFI_STATE`（manifest 里已有）。
+
+**代码改动**
+
+| 改动 | 内容 |
+| --- | --- |
+| 新增 `platform/.../wifi/WifiConnector.kt` | 让车机主动连指定热点：WiFi 没开先开（等 5 秒）；已配过同一热点同一密码就复用记录，密码变了删掉重配；`disconnect()` → `enableNetwork(id, true)` → `reconnect()`，再每 500ms 轮询 `connectionInfo`，`supplicantState == COMPLETED` 或拿到 `ipAddress` 即成功，20 秒超时给出可操作的原因（名称/密码/频段/去系统设置手动连）；`SecurityException` 也转成原因。全部 API 1，4.4 可用，`WifiConfiguration` 相关的 `@Suppress("DEPRECATION")` 压 lint。 |
+| `platform/.../wifi/CarHotspot.kt` 改语义 | 不再是"找车机开着的热点网卡"，而是**读车机当前连着的 WiFi**：`connectionInfo` 有地址、名称与车主填的一致 → 直接把 `ssid/bssid/ip/频率` 写成 `LocalHotspot` 交给无线连接（BSSID 取系统回报的 `connectionInfo.bssid`，读不到用占位值；频率安卓 5.0 起读 `frequency`，4.4 读不到按填的频段推测）；名称对不上就明说"连对热点再开始"。真能开热点的车机仍保留原来的"找热点网卡"兜底。等待时间从 5 秒放宽到 10 秒（刚连上时 DHCP 地址可能还没到）。 |
+| `MainActivity` | 分区改名"手机热点（车机连它）"，提示语改成"手机开个人热点（建议 2.4 GHz）…点「让车机连上」"；新增"让车机连上"按钮 + 状态行，后台线程跑 `WifiConnector`，结果写回界面（已连上 + 车机地址 / 没连上 + 原因）；勾选项改成"启用（开始无线连接前，车机连这个热点）"。 |
+| `WirelessPreferences` | 注释按新模型改写；`carHotspotFiveGhz` 默认值从 5 GHz 改为 **2.4 GHz**（4.4 车机多半只认 2.4，读不到实际频率时按它推测）。 |
+| 文案 | `DiagnosticsExport` 的"无线方式"改成"车机连手机热点（…）"、`else` 分支标注"车机开本地热点（安卓 8.0 起才有）"；`WirelessController` 的启动日志、`CAR_HOTSPOT_MISSING`、`OldSystemNeedsCarHotspot` 相关提示同步改成"先填手机热点并让车机连上，再开始无线连接"。 |
+
+**验证**
+
+- `:platform:compileDebugKotlin` BUILD SUCCESSFUL（17s），`:app:compileDebugKotlin` BUILD SUCCESSFUL（1m15s）。
+- 整仓 `check`（含各模块单测、lint）见本节末尾记录。
+
+**已知限制**
+
+- 4.4 上 `WifiInfo.getFrequency()` 不存在，报给手机的频率只能是按频段推测的值；同一频段内信道报错时手机一般还能自己扫到（原实现的经验）。
+- `addNetwork()` 对"开放热点"（无密码）会走 `KeyMgmt.NONE`；手机热点一般都带 WPA2，正常路径是 `WPA_PSK`。
+- 车机系统若把 WiFi 连接交给厂商的定制管理器（部分国产车机），`enableNetwork()` 可能被拒，此时原因会显示"系统不让启用这个网络"，需要车主在系统设置里手动连；这条只能真机确认。
+- 以上只有编译与 JVM 单测支撑，**没有 4.4 真机证据**（本地无 API 19 镜像）；真车回报后再补"实测记录"。

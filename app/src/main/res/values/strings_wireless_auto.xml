@@ -19,7 +19,7 @@
     <string name="wireless_auto_hold_wired_only">「只用数据线连接」开着：不自动连接手机。</string>
     <string name="wireless_auto_hold_paused">已停止。手机蓝牙重新连上车机时会再自动连接；现在要连，点「开始无线连接」扫码。</string>
     <string name="wireless_auto_hold_wired">有线连接在进行。</string>
-    <string name="wireless_auto_hold_hotspot_unsupported">这台车机是安卓 8.0 以下，没有本地热点，用不了无线连接（插线照常可用）。</string>
+    <string name="wireless_auto_hold_hotspot_unsupported">这台车机是安卓 8.0 以下，自己开不了热点：先填手机热点并让车机连上，才能无线连接（插线照常可用）。</string>
     <string name="wireless_auto_hold_identity">安装包不完整，用不了无线连接。</string>
     <string name="wireless_auto_hold_no_phone">还没有配对过的手机：点「开始无线连接」扫码配对一次。</string>
     <string name="wireless_auto_hold_bt_off">车机蓝牙关着：打开后，手机蓝牙连上车机时会自动连接。</string>

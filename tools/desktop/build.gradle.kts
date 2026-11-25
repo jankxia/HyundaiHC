@@ -19,3 +19,12 @@ tasks.named<JavaExec>("run") {
     workingDir = rootProject.projectDir
     standardInput = System.`in`
 }
+
+// 这两个测试校验的是 POSIX 权限语义（目录 700、文件 600），靠 `posix:permissions` 建文件属性。
+// Windows 的 NTFS 不支持这个属性视图，`Files.createTempFile(…, PosixFilePermissions.asFileAttribute(…))`
+// 直接抛 UnsupportedOperationException，测试本身在 Windows 上没有意义；CI 与开发机都是 Linux/macOS 时照常跑。
+tasks.withType<Test>().configureEach {
+    if (System.getProperty("os.name").orEmpty().startsWith("Windows")) {
+        exclude("**/FileTrustStoreTest.class", "**/VideoFileSinkTest.class")
+    }
+}

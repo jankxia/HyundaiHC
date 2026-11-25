@@ -281,3 +281,23 @@ internal class TestPhone(
 /** 用 JSON 字符串字面量包一层，模拟手机把认证库消息放进外层 `oper_type=3`。 */
 internal fun phoneEnvelope(operType: Int, data: String, version: String = "P_0@00000000000000"): String =
     "{\"version\":${JsonPrimitive(version)},\"oper_type\":$operType,\"data\":${JsonPrimitive(data)}}"
+
+/** 从外层 `oper_type=3` 信封里取出认证库消息原文。 */
+internal fun unwrapEnvelope(text: String): String =
+    (Json.parseToJsonElement(text).jsonObject["data"] as JsonPrimitive).content
+
+/** 消息里的长十六进制串（≥16 字节）一定是随机材料或密文，取值与实现取到的随机数有关。 */
+private val HEX_MATERIAL = Regex("[0-9A-F]{32,}")
+
+internal fun hasRandomMaterial(text: String): Boolean = HEX_MATERIAL.containsMatchIn(text)
+
+/**
+ * 把随机材料换成「长度占位」（`<32>`），用于与随机数取值无关的对照。
+ *
+ * 向量里的挑战、salt、epk、密文长度都取决于双方取到的随机数，只有取随机数的序列完全一致时才可能逐字节相同；
+ * 换成占位后剩下的就是字段名、字段顺序、空白与各段长度——这些才是移植容易出错、又必须对上的部分。
+ * 注意外层信封里的认证 JSON 是被转义成字符串的，所以这里不锚定引号，直接把长十六进制串本身换掉。
+ */
+internal fun shapeOf(text: String): String = HEX_MATERIAL.replace(text) { "<${it.value.length}>" }
+
+internal fun List<String>.shapes(): List<String> = map { shapeOf(it) }

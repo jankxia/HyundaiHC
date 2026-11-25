@@ -136,11 +136,11 @@ internal object DiagnosticsExport {
             "系统读得到车机蓝牙地址" to yesNo(DeviceInfo.systemBluetoothAddress() != null),
             "只用数据线连接" to yesNo(wireless.wiredOnly),
             "无线方式" to when {
-                wireless.carHotspot -> "车机自带热点（试验，${if (wireless.carHotspotFiveGhz) "5 GHz" else "2.4 GHz"}，" +
+                wireless.carHotspot -> "车机连手机热点（手机开热点，${if (wireless.carHotspotFiveGhz) "5 GHz" else "2.4 GHz"}，" +
                     "名称密码${if (wireless.carHotspotSettings() != null) "已填" else "没填齐"}）"
                 wireless.usesWifiDirect -> "WiFi 直连（试验）"
-                wireless.wifiDirect -> "选了 WiFi 直连，但这台车机不支持，实际用热点"
-                else -> "车机开热点"
+                wireless.wifiDirect -> "选了 WiFi 直连，但这台车机不支持，实际用车机本地热点"
+                else -> "车机开本地热点（安卓 8.0 起才有）"
             },
             "自动连接手机" to yesNo(wireless.connectOnBluetooth),
             "用无线连成功过的手机" to "${wireless.knownPhones.size} 台",

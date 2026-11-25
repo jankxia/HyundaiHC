@@ -29,40 +29,44 @@ class WirelessPreferences(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_CONNECT_ON_BLUETOOTH, value) }
 
     /**
-     * 无线方式选「WiFi 直连」（默认关，即车机开热点；试验）：手机认证通过后车机建 WiFi 直连组让手机加入、不开本地热点，
+     * 无线方式选「WiFi 直连」（默认关）：手机认证通过后车机建 WiFi 直连组让手机加入、不开本地热点，
      * 优先 5 GHz。下一次无线连接生效（见 [usesWifiDirect]）。
      */
     var wifiDirect: Boolean
         get() = prefs.getBoolean(KEY_WIFI_DIRECT, false)
         set(value) = prefs.edit { putBoolean(KEY_WIFI_DIRECT, value) }
 
-    /** 下一次无线连接真的走 WiFi 直连：选了直连（没选车机自带热点），而且系统支持（[wifiDirectSupported]）。 */
+    /** 下一次无线连接真的走 WiFi 直连：选了直连（没选车机连手机热点），而且系统支持（[wifiDirectSupported]）。 */
     val usesWifiDirect: Boolean get() = wifiDirect && !carHotspot && wifiDirectSupported
 
     /**
-     * 无线方式选「车机自带热点」（试验，默认关）：车主先在车机设置里打开车机自带的热点，HyundaiHC 不开本地热点，
-     * 用车主填的热点名、密码和频段（[carHotspotSettings]）。和 [wifiDirect] 二选一，设置页保证只开一个。
+     * 无线方式选「车机连手机热点」（默认关）：手机开个人热点，车机当 WiFi 客户端连上它，HyundaiHC 不开任何热点，
+     * 用车主填的热点名、密码和频段写进给手机的连接串（[carHotspotSettings]）。和 [wifiDirect] 二选一，
+     * 设置页保证只开一个。安卓 4.4 车机没有开热点的能力，无线只能走这条路（或 WiFi 直连）。
      */
     var carHotspot: Boolean
         get() = prefs.getBoolean(KEY_CAR_HOTSPOT, false)
         set(value) = prefs.edit { putBoolean(KEY_CAR_HOTSPOT, value) }
 
-    /** 车机自带热点的名称（车主填的，原样）。 */
+    /** 手机热点的名称（车主填的，原样）。 */
     var carHotspotName: String
         get() = prefs.getString(KEY_CAR_HOTSPOT_NAME, null).orEmpty()
         set(value) = prefs.edit { putString(KEY_CAR_HOTSPOT_NAME, value) }
 
-    /** 车机自带热点的密码（车主填的，原样；不写日志）。 */
+    /** 手机热点的密码（车主填的，原样；不写日志）。 */
     var carHotspotPassword: String
         get() = prefs.getString(KEY_CAR_HOTSPOT_PASSWORD, null).orEmpty()
         set(value) = prefs.edit { putString(KEY_CAR_HOTSPOT_PASSWORD, value) }
 
-    /** 车机自带热点开在 5 GHz（默认）还是 2.4 GHz：报给手机的频率按它推测。 */
+    /**
+     * 手机热点开在 5 GHz 还是 2.4 GHz（默认 2.4，4.4 车机多半只认 2.4）：读不到实际频率时，
+     * 报给手机的频率按它推测。
+     */
     var carHotspotFiveGhz: Boolean
-        get() = prefs.getBoolean(KEY_CAR_HOTSPOT_5G, true)
+        get() = prefs.getBoolean(KEY_CAR_HOTSPOT_5G, false)
         set(value) = prefs.edit { putBoolean(KEY_CAR_HOTSPOT_5G, value) }
 
-    /** 下一次无线连接用的车机自带热点；没选这种方式、或名称密码没填时为 null。 */
+    /** 下一次无线连接用的手机热点；没选这种方式、或名称密码没填时为 null。 */
     fun carHotspotSettings(): CarHotspotSettings? {
         if (!carHotspot) return null
         val name = carHotspotName

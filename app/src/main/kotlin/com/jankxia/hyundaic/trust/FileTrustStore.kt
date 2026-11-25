@@ -108,7 +108,13 @@ class FileTrustStore private constructor(
                     out.flush()
                     out.fd.sync()
                 }
-                if (!temp.renameTo(target)) throw IOException("把临时文件改名为 ${target.name} 失败")
+                if (!temp.renameTo(target)) {
+                    // POSIX 的 rename 直接覆盖同名目标（安卓上就是这样）；Windows 的 rename 不覆盖，
+                    // 电脑上跑单测时会失败，所以目标已存在就删掉再来一次。安卓上永远走不到这条分支。
+                    if (!(target.exists() && target.delete() && temp.renameTo(target))) {
+                        throw IOException("把临时文件改名为 ${target.name} 失败")
+                    }
+                }
             } catch (e: IOException) {
                 temp.delete()
                 throw e

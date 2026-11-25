@@ -29,6 +29,7 @@ import com.jankxia.hyundaic.connection.DisplayArea
 import com.jankxia.hyundaic.connection.Notice
 import com.jankxia.hyundaic.platform.log.Log
 import com.jankxia.hyundaic.platform.net.VpnConsent
+import com.jankxia.hyundaic.platform.wifi.WifiConnector
 import com.jankxia.hyundaic.settings.AppSettings
 import com.jankxia.hyundaic.settings.AudioPreferences
 import com.jankxia.hyundaic.settings.WirelessPreferences
@@ -66,6 +67,7 @@ class MainActivity : Activity() {
     private lateinit var hotspotPassInput: EditText
     private lateinit var hotspotEnable: CheckBox
     private lateinit var hotspotFiveGhz: CheckBox
+    private lateinit var hotspotStatusView: TextView
     private lateinit var wirelessStatusView: TextView
     private lateinit var qrView: ImageView
     private var lastQrContent: String? = null
@@ -219,34 +221,35 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 车机自带热点的最小配置入口（安卓 8.0 以下走这条路）：车主先在车机设置里把 WiFi 开成热点，
-     * 再把热点名称、密码填到这里、勾上启用。临时骨架用，完整设置页待阶段 3 补回。
+     * 手机热点配置：这台车机没有开热点的能力，只是 WiFi 客户端，所以由手机开个人热点、车机连它。
+     * 车主把手机热点的名称和密码填这里，「让车机连上」直接替车主连；勾上启用后，开始无线连接时
+     * 就用车机当前连着的这个热点（见 [com.jankxia.hyundaic.platform.wifi.CarHotspot]）。
      */
     private fun buildHotspotConfig(): View {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        box.addView(sectionTitle("车机自带热点"))
+        box.addView(sectionTitle("手机热点（车机连它）"))
         box.addView(TextView(this).apply {
-            text = "安卓 8.0 以下走这条：先在车机设置里把 WiFi 开成热点，再填这里并勾上启用"
+            text = "车机不开热点，只连手机：手机开个人热点（建议 2.4 GHz），把名称和密码填这里，点「让车机连上」"
             textSize = 13f
             setPadding(0, dp(6), 0, dp(4))
         })
         hotspotNameInput = EditText(this).apply {
-            hint = "热点名称（SSID）"
+            hint = "手机热点名称（SSID）"
             textSize = 14f
             setSingleLine(true)
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             inputField(this)
         }
         hotspotPassInput = EditText(this).apply {
-            hint = "热点密码"
+            hint = "手机热点密码"
             textSize = 14f
             setSingleLine(true)
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             inputField(this)
         }
-        hotspotFiveGhz = CheckBox(this).apply { text = "5 GHz"; textSize = 14f; minHeight = dp(40) }
+        hotspotFiveGhz = CheckBox(this).apply { text = "手机热点用 5 GHz"; textSize = 14f; minHeight = dp(40) }
         hotspotEnable = CheckBox(this).apply {
-            text = "启用（不开本地热点，直接用车机这个热点）"
+            text = "启用（开始无线连接前，车机连这个热点）"
             textSize = 14f
             minHeight = dp(40)
         }
@@ -258,11 +261,20 @@ class MainActivity : Activity() {
                 .apply { topMargin = dp(6) },
         )
         box.addView(fieldRow(this, hotspotFiveGhz, hotspotEnable))
+        hotspotStatusView = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, dp(6), 0, 0)
+            visibility = View.GONE
+        }
         box.addView(
-            actionButton("保存热点配置") { saveHotspotConfig() },
+            buttonRow(
+                actionButton("保存热点配置") { saveHotspotConfig() },
+                actionButton("让车机连上") { connectHotspotNow() },
+            ),
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 .apply { topMargin = dp(10) },
         )
+        box.addView(hotspotStatusView)
         return box
     }
 
@@ -328,16 +340,46 @@ class MainActivity : Activity() {
         val name = hotspotNameInput.text.toString().trim()
         val pass = hotspotPassInput.text.toString().trim()
         if (hotspotEnable.isChecked && (name.isEmpty() || pass.isEmpty())) {
-            Toast.makeText(this, "勾了启用就要填热点名称和密码", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "勾了启用就要填手机热点名称和密码", Toast.LENGTH_SHORT).show()
             return
         }
         p.carHotspotName = name
         p.carHotspotPassword = pass
         p.carHotspotFiveGhz = hotspotFiveGhz.isChecked
         p.carHotspot = hotspotEnable.isChecked
-        // 两种「不开本地热点」的方式二选一：选了车机自带热点就关掉 WiFi 直连。
+        // 几种「给手机准备的 WiFi 网络」二选一：选了车机连手机热点就关掉 WiFi 直连。
         if (p.carHotspot) p.wifiDirect = false
-        Toast.makeText(this, "已保存，接着点开始无线连接", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "已保存，点「让车机连上」现在就连", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 让车机连上填的手机热点（车机是 WiFi 客户端，见 [WifiConnector]）。在后台线程连，结果写回状态行。
+     * 连之前先把名称密码存下来：连上以后「开始无线连接」用的就是这一份。
+     */
+    private fun connectHotspotNow() {
+        val name = hotspotNameInput.text.toString().trim()
+        val pass = hotspotPassInput.text.toString().trim()
+        if (name.isEmpty()) {
+            Toast.makeText(this, "先填手机热点名称", Toast.LENGTH_SHORT).show()
+            return
+        }
+        WirelessPreferences(this).apply {
+            carHotspotName = name
+            carHotspotPassword = pass
+            carHotspotFiveGhz = hotspotFiveGhz.isChecked
+        }
+        hotspotStatusView.visibility = View.VISIBLE
+        hotspotStatusView.text = "正在连「$name」…"
+        val appContext = applicationContext
+        Thread({
+            val result = WifiConnector(appContext).connect(name, pass)
+            mainHandler.post {
+                hotspotStatusView.text = when (result) {
+                    is WifiConnector.Result.Connected -> "已连上「${result.ssid}」，车机地址 ${result.ipAddress}"
+                    is WifiConnector.Result.Failed -> "没连上：${result.reason}"
+                }
+            }
+        }, "HyundaiHC-WifiConnect").apply { isDaemon = true }.start()
     }
 
     /** 按当前连接状态刷新骨架上的文本与按钮；完整三屏与无线界面待后续阶段补回。 */

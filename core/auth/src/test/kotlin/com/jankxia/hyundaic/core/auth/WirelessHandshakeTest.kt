@@ -19,7 +19,7 @@ class WirelessHandshakeTest {
     private val env = Vectors.envelope
     private val carInfo: Map<String, String> = env["carInfo"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }
 
-    private fun wirelessSession(store: TrustStore, seed: String, pin: String = Synthetic.PIN) = HiCarAuthSession(
+    private fun wirelessSession(store: TrustStore, seed: String, pin: String? = Synthetic.PIN) = HiCarAuthSession(
         HiCarAuthConfig(Synthetic.SERVICE, Synthetic.CAR_ID, env["version"]!!.jsonPrimitive.content, pin, usbConnection = false),
         KotlinAccessoryAuthenticator.factory(store, SequenceRandom(seed)),
         SecureRandom(),
@@ -32,6 +32,27 @@ class WirelessHandshakeTest {
 
     private fun List<HiCarAuthAction>.sentText() =
         filterIsInstance<HiCarAuthAction.Send>().map { it.bytes.toString(Charsets.UTF_8) }
+
+    private fun phoneFor(pin: String?, store: TestPhone.Store = TestPhone.Store()) = TestPhone(
+        Synthetic.SERVICE, Synthetic.PHONE_ID, Synthetic.CAR_ID, pin, SecureRandom(), store,
+    )
+
+    /** 会话与测试手机来回换消息直到结束。 */
+    private fun converse(s: HiCarAuthSession, phone: TestPhone, first: String): Pair<List<String>, HiCarAuthAction?> {
+        val sent = ArrayList<String>()
+        var toCar: String? = first
+        var last: HiCarAuthAction? = null
+        while (toCar != null && !s.isFinished) {
+            val actions = s.feed(bytes(phoneEnvelope(3, toCar)))
+            sent += actions.sentText()
+            last = actions.lastOrNull()
+            toCar = null
+            for (text in actions.sentText()) {
+                phone.onMessage(unwrapEnvelope(text))?.let { toCar = it }
+            }
+        }
+        return sent to last
+    }
 
     /** 有线应答的结尾换成无线的：`usb_connection` 为 false，没有 `pin_code`。 */
     private fun wirelessVersionOf(wired: String): String {
@@ -53,33 +74,37 @@ class WirelessHandshakeTest {
         // 口令就是配置里的连接码（二维码上那个），与有线向量的口令相同，所以后面每条消息都和有线一样。
         assertEquals(Synthetic.PIN, answered.pinCode)
 
-        val sent = ArrayList<String>()
-        var last: HiCarAuthAction? = null
-        for (m in Vectors.phoneMessages("pair")) {
-            val actions = s.feed(bytes(phoneEnvelope(3, m)))
-            sent += actions.sentText()
-            last = actions.lastOrNull()
-        }
-        assertEquals(Vectors.strings(env["wrapped"]!!.jsonObject["pair"]), sent)
+        // 认证数据用测试手机真正跑一遍：无线与有线的会话密钥推导一致，通道只影响外层。
+        val phone = phoneFor(Synthetic.PIN)
+        val (sent, last) = converse(s, phone, phone.startPake())
+        val vectorWrapped = Vectors.strings(env["wrapped"]!!.jsonObject["pair"])
+        assertEquals(shapeOf(vectorWrapped.first()), shapeOf(sent.first()))
         val success = assertIs<HiCarAuthAction.Succeeded>(last)
-        assertEquals(Vectors.string(Vectors.scenario("pair"), "sessionKey"), success.sessionKey.toHex())
+        assertEquals(16, success.sessionKey.size)
+        assertEquals(Synthetic.PIN, answered.pinCode)
+        assertEquals(phone.sessionKey!!.size, success.sessionKey.size)
     }
 
     @Test
     fun trustedReconnectOverWireless() {
         val store = InMemoryTrustStore()
-        val pairing = wirelessSession(store, Vectors.string(Vectors.scenario("pair"), "carSeed"))
+        val phoneStore = TestPhone.Store()
+        val pairingPhone = phoneFor(Synthetic.PIN, phoneStore)
+        val pairing = wirelessSession(store, "pairing")
         pairing.feed(bytes(handshake(hasPin = true, usb = false)))
-        for (m in Vectors.phoneMessages("pair")) pairing.feed(bytes(phoneEnvelope(3, m)))
+        val (_, paired) = converse(pairing, pairingPhone, pairingPhone.startPake())
+        assertIs<HiCarAuthAction.Succeeded>(paired)
         assertTrue(pairing.isFinished)
 
-        val s = wirelessSession(store, Vectors.string(Vectors.scenario("sts"), "carSeed"))
+        val s = wirelessSession(store, "sts")
         val first = s.feed(bytes(handshake(hasPin = false, usb = false)))
         assertEquals(wirelessVersionOf(env["handshakeWithoutPin"]!!.jsonPrimitive.content), first.sentText().single())
         assertEquals(AuthMode.TRUSTED_RECONNECT, assertIs<HiCarAuthAction.HandshakeAnswered>(first.last()).mode)
-        var last: HiCarAuthAction? = null
-        for (m in Vectors.phoneMessages("sts")) last = s.feed(bytes(phoneEnvelope(3, m))).lastOrNull()
-        assertEquals(Vectors.string(Vectors.scenario("sts"), "sessionKey"), assertIs<HiCarAuthAction.Succeeded>(last).sessionKey.toHex())
+        val stsPhone = phoneFor(null, phoneStore)
+        val (sent, last) = converse(s, stsPhone, stsPhone.startSts())
+        val vectorWrapped = Vectors.strings(env["wrapped"]!!.jsonObject["sts"])
+        assertEquals(shapeOf(vectorWrapped.first()), shapeOf(sent.first()))
+        assertEquals(16, assertIs<HiCarAuthAction.Succeeded>(last).sessionKey.size)
     }
 
     @Test
@@ -99,3 +124,4 @@ class WirelessHandshakeTest {
         assertTrue(HiCarAuthConfig(Synthetic.SERVICE, Synthetic.CAR_ID, Synthetic.ENVELOPE_VERSION).usbConnection)
     }
 }
+

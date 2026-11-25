@@ -430,7 +430,7 @@ class WirelessController(
         userStopped = false
         if (wirelessPrefs.wiredOnly) return blocked(kind, WirelessNotice.WiredOnly, AutoHold.WIRED_ONLY)
         if (wiredActive()) return blocked(kind, WirelessNotice.WiredActive, AutoHold.WIRED_ACTIVE)
-        // 数据通道先定下来：车机自带热点（车主开）、WiFi 直连组都不要求安卓 8.0；
+        // 数据通道先定下来：车机连手机热点（手机开）、WiFi 直连组都不要求安卓 8.0；
         // 只有「车机自己开本地热点」这条路才是 API 26 起。旧系统（安卓 4.4）必须走前两条。
         val carHotspot = wirelessPrefs.carHotspotSettings()
         if (wirelessPrefs.carHotspot && carHotspot == null) {
@@ -438,7 +438,7 @@ class WirelessController(
         }
         val directGroup = carHotspot == null && wirelessPrefs.usesWifiDirect
         if (!WirelessNetworkPlan.channelSupported(Build.VERSION.SDK_INT, carHotspot != null, directGroup)) {
-            // 走到这里说明：本地热点不可用（安卓 8.0 以下），且没配车机自带热点、也没开 WiFi 直连。
+            // 走到这里说明：本地热点不可用（安卓 8.0 以下），且没配手机热点、也没开 WiFi 直连。
             return blocked(kind, WirelessNotice.OldSystemNeedsCarHotspot, AutoHold.HOTSPOT_UNSUPPORTED)
         }
         val identity = when (val loaded = IdentityLoader.load(app)) {
@@ -532,7 +532,7 @@ class WirelessController(
             "第 ${current.id} 次无线连接（${when (kind) { Kind.AUTO -> "等已配对的手机回连"; Kind.RECONNECT -> "车机主动回连"; Kind.MANUAL -> "用户开始" }}）：" +
                 "蓝牙地址来源 ${bluetooth.source}，deviceId ${config.deviceId.take(4)}…，" +
                 "画布 ${display.width}x${display.height}@${display.fps} dpi ${display.dpi}（界面大小 ${settings.uiScalePercent}%），系统 ${Build.VERSION.SDK_INT}，$wifi，" +
-                "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${when { carHotspot != null -> "车机自带热点（试验，$carHotspot）"; directGroup -> "WiFi 直连组（试验）"; else -> "本地热点" }}，" +
+                "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${when { carHotspot != null -> "车机连手机热点（$carHotspot）"; directGroup -> "WiFi 直连组（试验）"; else -> "本地热点" }}，" +
                 "广播 ${beacon?.let { "开（重新发布 ${it.republishMillis / 1000} 秒，GATT ${if (it.gatt) "开" else "关"}${if (it.declareRandomAddress) "，声明随机地址" else ""}）" } ?: "不发"}",
         )
         Log.i(TAG, "第 ${current.id} 次无线连接的清晰度：${clarity.key}，声明码率 ${VideoClarity.describe(config.display.bitrate)}")
@@ -1241,8 +1241,8 @@ class WirelessController(
     }
 
     private companion object {
-        /** 选了车机自带热点却没填名称密码。 */
-        const val CAR_HOTSPOT_MISSING = "无线方式选了「车机自带热点」，但还没在设置里填热点名和密码"
+        /** 选了车机连手机热点却没填名称密码。 */
+        const val CAR_HOTSPOT_MISSING = "无线方式选了「车机连手机热点」，但还没填手机热点名和密码"
 
         /** 同一台手机两次车机主动回连之间至少隔这么久。 */
         const val RECONNECT_COOLDOWN_MS = 60_000L

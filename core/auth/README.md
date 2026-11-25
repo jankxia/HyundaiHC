@@ -40,13 +40,22 @@ TCP 断开 ──────────────▶ HiCarAuthSession.onConn
 
 ## 行为对齐与验证
 
-`KotlinAccessoryAuthenticator` 与原库（OpenHarmony deviceauth_lite）的车机角色行为一致：
+`KotlinAccessoryAuthenticator` 照原库（OpenHarmony deviceauth_lite）的车机角色实现，验证分三层：
 
-- 注入同一随机数序列、收到同样的手机消息时，发出的每一条消息逐字节相同（字段顺序、空白、十六进制大小写），
-  结果码序列和会话密钥相同；错误路径的错误码也相同。`src/test/resources/.../accessory-vectors.json`
-  是由该 C 实现注入确定性随机数后产出的固定向量（身份、连接码、服务身份都是合成值），`CVectorsTest` 逐条对照。
-- 外层 JSON 的期望值按 Python `json.dumps(..., ensure_ascii=False, separators=(",", ":"))` 的紧凑输出生成
-  （非 ASCII 原样输出），`HiCarAuthSessionTest` 对照。
+- **取随机数的次序与长度**：`SequenceRandom` 是 `SHA-256(seed || BE32(i))` 拼接流，测试断言每一步累计取了多少字节
+  （例如首发应答 96 字节：长期身份 32 + salt 16 + 挑战 16 + 私有指数 32）。次序错了后续消息一定错位，这条收紧得住。
+- **消息结构**：把消息里的长十六进制材料换成长度占位（`shapeOf`）后逐字段对照向量，
+  钉住字段名、字段顺序、空白、十六进制大小写与各段长度（salt 32 / 挑战 32 / epk 768 / kcf 64 …）。
+- **不含随机材料的消息**：错误通知（`{"message":32896, "payload":{"errorCode":…}}`）与字段错误的应答仍逐字节相同，
+  错误码、结果码序列也必须一致；38 个错误路径探针里 24 个属于这一类。
+- 端到端的一致性是另一条：`RoundTripTest` 用真随机数跑车机 ↔ 测试手机的完整配对与回连，
+  断言双方导出同一个会话密钥；`HiCarAuthSessionTest`、`WirelessHandshakeTest` 的外层分帧与信封同样跑这条链路。
+
+**为什么不逐字节对照整段会话**：`accessory-vectors.json` 声明随机数是 `SHA-256(seed || BE32(i))`，
+但向量里记录的 challenge / salt 在这条流里（前 16 KB、各种计数编码、各种前缀后缀，共 210 种组合）都不存在，
+说明录制这批向量时用的桩与文件里写的不是同一套。随机材料既然取不到同一组值，KCF 就绑不上双方看到的挑战，
+整段会话必然在配对确认处按 `VERIFY_PROOF_FAILED` 分叉——那不是实现的问题，而是缺少同一随机源。
+要恢复整段逐字节对照，必须用 C 侧测试桩重新生成向量（需要能编译 deviceauth_lite 的环境），而不是靠猜测。
 
 ## 移植来源
 

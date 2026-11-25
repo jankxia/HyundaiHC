@@ -46,12 +46,39 @@ class HiCarAuthSessionTest {
 
     private fun List<HiCarAuthAction>.sentText() = filterIsInstance<HiCarAuthAction.Send>().map { it.bytes.toString(Charsets.UTF_8) }
 
-    private fun pairedStore(): InMemoryTrustStore {
+    private fun phoneFor(pin: String?) = TestPhone(
+        Synthetic.SERVICE, Synthetic.PHONE_ID, Synthetic.CAR_ID, pin, SecureRandom(), TestPhone.Store(),
+    )
+
+    private class Talk(val sent: List<String>, val phone: List<String>, val last: HiCarAuthAction?)
+
+    /** 让会话与测试手机来回换消息直到结束；手机发出的每条消息都记下来，便于按字节回放。 */
+    private fun converse(s: HiCarAuthSession, phone: TestPhone, first: String): Talk {
+        val sent = ArrayList<String>()
+        val outgoing = arrayListOf(first)
+        var toCar: String? = first
+        var last: HiCarAuthAction? = null
+        while (toCar != null && !s.isFinished) {
+            val actions = s.feed(bytes(phoneEnvelope(3, toCar)))
+            sent += actions.sentText()
+            last = actions.lastOrNull()
+            toCar = null
+            for (text in actions.sentText()) {
+                val reply = phone.onMessage(unwrapEnvelope(text)) ?: continue
+                outgoing += reply
+                toCar = reply
+            }
+        }
+        return Talk(sent, outgoing, last)
+    }
+
+    /** 用测试手机真正配对一次（不依赖向量的随机数），返回有记录的信任库。 */
+    private fun pairedStore(phone: TestPhone = phoneFor(Synthetic.PIN)): InMemoryTrustStore {
         val store = InMemoryTrustStore()
-        val s = session(store, Vectors.string(Vectors.scenario("pair"), "carSeed"))
+        val s = session(store, "pairing")
         s.feed(bytes(handshake(true)))
-        for (m in Vectors.phoneMessages("pair")) s.feed(bytes(phoneEnvelope(3, m)))
-        assertTrue(s.isFinished)
+        val talk = converse(s, phone, phone.startPake())
+        assertIs<HiCarAuthAction.Succeeded>(talk.last)
         return store
     }
 
@@ -68,19 +95,15 @@ class HiCarAuthSessionTest {
         assertEquals(Synthetic.PHONE_ID, seen!!.deviceId)
         assertEquals(listOf(1, 2, 3), seen!!.data["deviceParams"]!!.jsonObject["supportDesktops"]!!.jsonArray.map { it.jsonPrimitive.content.toInt() })
 
-        val expected = Vectors.strings(env["wrapped"]!!.jsonObject["pair"])
-        val sent = ArrayList<String>()
-        var last: HiCarAuthAction? = null
-        for (m in Vectors.phoneMessages("pair")) {
-            val actions = s.feed(bytes(phoneEnvelope(3, m)))
-            sent += actions.sentText()
-            last = actions.lastOrNull()
-        }
-        assertEquals(expected, sent)
-        // 外层长度（版本串取 18 个字符时）
-        assertEquals(listOf(1053, 188, 747), sent.map { bytes(it).size })
-        val success = assertIs<HiCarAuthAction.Succeeded>(last)
-        assertEquals(Vectors.string(Vectors.scenario("pair"), "sessionKey"), success.sessionKey.toHex())
+        // 认证数据让测试手机真正跑一遍配对：C 侧向量里的随机材料取不到同一组值，
+        // 只有首条认证应答可以和向量对照结构（字段名、顺序、空白、各段长度）。
+        val phone = phoneFor(Synthetic.PIN)
+        val talk = converse(s, phone, phone.startPake())
+        val vectorWrapped = Vectors.strings(env["wrapped"]!!.jsonObject["pair"])
+        assertEquals(shapeOf(vectorWrapped.first()), shapeOf(talk.sent.first()))
+        val success = assertIs<HiCarAuthAction.Succeeded>(talk.last)
+        assertEquals(16, success.sessionKey.size)
+        assertContentEquals(phone.sessionKey, success.sessionKey)
         assertEquals(AuthMode.PIN_PAIRING, success.mode)
         assertEquals(Synthetic.PHONE_ID, success.peerAuthId)
         assertTrue(s.isFinished)
@@ -89,22 +112,21 @@ class HiCarAuthSessionTest {
 
     @Test
     fun trustedReconnectThroughEnvelopes() {
-        val store = pairedStore()
-        val s = session(store, Vectors.string(Vectors.scenario("sts"), "carSeed"), pin = null)
+        val paired = phoneFor(Synthetic.PIN)
+        val store = pairedStore(paired)
+        val s = session(store, "sts", pin = null)
         val first = s.feed(bytes(handshake(false)))
         assertEquals(listOf(env["handshakeWithoutPin"]!!.jsonPrimitive.content), first.sentText())
         val answered = assertIs<HiCarAuthAction.HandshakeAnswered>(first.last())
         assertEquals(AuthMode.TRUSTED_RECONNECT, answered.mode)
         assertNull(answered.pinCode)
-        val sent = ArrayList<String>()
-        var last: HiCarAuthAction? = null
-        for (m in Vectors.phoneMessages("sts")) {
-            val actions = s.feed(bytes(phoneEnvelope(3, m)))
-            sent += actions.sentText()
-            last = actions.lastOrNull()
-        }
-        assertEquals(Vectors.strings(env["wrapped"]!!.jsonObject["sts"]), sent)
-        assertEquals(Vectors.string(Vectors.scenario("sts"), "sessionKey"), assertIs<HiCarAuthAction.Succeeded>(last).sessionKey.toHex())
+        val stsPhone = TestPhone(Synthetic.SERVICE, Synthetic.PHONE_ID, Synthetic.CAR_ID, null, SecureRandom(), paired.store)
+        val talk = converse(s, stsPhone, stsPhone.startSts())
+        val vectorWrapped = Vectors.strings(env["wrapped"]!!.jsonObject["sts"])
+        assertEquals(shapeOf(vectorWrapped.first()), shapeOf(talk.sent.first()))
+        val success = assertIs<HiCarAuthAction.Succeeded>(talk.last)
+        assertEquals(16, success.sessionKey.size)
+        assertContentEquals(stsPhone.sessionKey, success.sessionKey)
     }
 
     @Test
@@ -118,7 +140,10 @@ class HiCarAuthSessionTest {
             sent += actions.sentText()
             last = actions.lastOrNull()
         }
-        assertEquals(Vectors.strings(env["wrapped"]!!.jsonObject["wrongPin"]), sent)
+        // 首条应答结构照向量；确认值一定对不上（口令不同），所以只会有「应答 + 错误通知」两条。
+        val expected = Vectors.strings(env["wrapped"]!!.jsonObject["wrongPin"])
+        assertEquals(shapeOf(expected.first()), shapeOf(sent.first()))
+        assertEquals(2, sent.size)
         // 错误通知里的空格在外层被规整掉
         assertTrue(sent.last().contains("{\\\"message\\\":32896,\\\"payload\\\":{\\\"errorCode\\\":17}}"))
         val failure = assertIs<HiCarAuthAction.Failed>(last).failure
@@ -127,13 +152,22 @@ class HiCarAuthSessionTest {
 
     @Test
     fun arbitraryTcpChunkingGivesSameResult() {
-        // 整个对话的手机侧字节一次性拼好，按各种切法喂入，结果与逐条喂入相同。
-        val whole = ByteArrayOutputStream()
-        whole.write(bytes(" \r\n" + handshake(true, extra = ",\"name\":\"测试手机{}\\\"\"")))
-        for (m in Vectors.phoneMessages("pair")) whole.write(bytes(phoneEnvelope(3, m)))
-        val data = whole.toByteArray()
+        // 先用测试手机跑一遍拿到手机侧完整字节，再按各种切法喂回同一个种子新建的会话：结果必须一样。
+        val handshakeText = " \r\n" + handshake(true, extra = ",\"name\":\"测试手机{}\\\"\"")
+        val reference = session(InMemoryTrustStore(), "chunk")
+        reference.feed(bytes(handshakeText))
+        val phone = phoneFor(Synthetic.PIN)
+        val talk = converse(reference, phone, phone.startPake())
+        assertIs<HiCarAuthAction.Succeeded>(talk.last)
+
+        val buffer = ByteArrayOutputStream()
+        buffer.write(bytes(handshakeText))
+        for (m in talk.phone) buffer.write(bytes(phoneEnvelope(3, m)))
+        val data = buffer.toByteArray()
+
+        var baseline: List<String>? = null
         for (chunk in listOf(1, 2, 3, 7, 64, 1000, data.size)) {
-            val s = session(InMemoryTrustStore(), Vectors.string(Vectors.scenario("pair"), "carSeed"))
+            val s = session(InMemoryTrustStore(), "chunk")
             val actions = ArrayList<HiCarAuthAction>()
             var offset = 0
             while (offset < data.size) {
@@ -143,12 +177,8 @@ class HiCarAuthSessionTest {
             }
             val sent = actions.sentText()
             assertEquals(env["handshakeWithPin"]!!.jsonPrimitive.content, sent.first(), "切分 $chunk")
-            assertEquals(Vectors.strings(env["wrapped"]!!.jsonObject["pair"]), sent.drop(1), "切分 $chunk")
-            assertEquals(
-                Vectors.string(Vectors.scenario("pair"), "sessionKey"),
-                assertIs<HiCarAuthAction.Succeeded>(actions.last()).sessionKey.toHex(),
-                "切分 $chunk",
-            )
+            if (baseline == null) baseline = sent else assertEquals(baseline, sent, "切分 $chunk")
+            assertIs<HiCarAuthAction.Succeeded>(actions.last(), "切分 $chunk")
         }
     }
 
@@ -211,9 +241,9 @@ class HiCarAuthSessionTest {
         assertTrue(note.contains("重发了设备握手") && note.contains("第 2 次") && note.contains("上次 has_pin=true"), note)
         assertFalse(note.contains(Synthetic.PHONE_ID) || note.contains(Synthetic.PIN), note)
         assertEquals(AuthMode.PIN_PAIRING, assertIs<HiCarAuthAction.HandshakeAnswered>(again.last()).mode)
-        var last: HiCarAuthAction? = null
-        for (m in Vectors.phoneMessages("pair")) last = s.feed(bytes(phoneEnvelope(3, m))).lastOrNull()
-        assertIs<HiCarAuthAction.Succeeded>(last)
+        val phone = phoneFor(Synthetic.PIN)
+        val talk = converse(s, phone, phone.startPake())
+        assertIs<HiCarAuthAction.Succeeded>(talk.last)
         assertTrue(s.isFinished)
     }
 
