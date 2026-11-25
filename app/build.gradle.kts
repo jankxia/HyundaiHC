@@ -44,8 +44,8 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         // versionCode = 主版本 × 10000 + 次版本 × 100 + 补丁号。
-        versionCode = 209
-        versionName = "0.2.9"
+        versionCode = 210
+        versionName = "0.2.10"
         // minSdk 19 不支持原生多 dex：方法数超 64K 时需要 multidex 支持库。
         multiDexEnabled = true
     }
