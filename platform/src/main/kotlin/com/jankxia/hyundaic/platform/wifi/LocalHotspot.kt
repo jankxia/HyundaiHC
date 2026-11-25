@@ -490,7 +490,8 @@ class LocalHotspotOwner private constructor(context: Context) {
     private fun reasonText(reason: Int): String = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) "原因 $reason" else when (reason) {
         WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL -> "没有可用的信道"
         WifiManager.LocalOnlyHotspotCallback.ERROR_GENERIC ->
-            "系统内部错误（刚关掉热点又马上申请、或安卓 8～12 系统定位开关没开时常见）"
+            "系统内部错误（刚关掉热点又马上申请、或安卓 8～12 系统定位开关没开时常见）；" +
+                "这台设备本身不支持本地热点时也这样（模拟器、多数后装车机），改用「手机热点（车机连它）」"
         WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
             "当前状态开不了：车机可能开着个人热点或在共享网络，或者本应用不在前台"
         WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED -> "系统策略不允许开热点"

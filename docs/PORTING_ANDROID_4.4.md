@@ -472,7 +472,10 @@ BUILD SUCCESSFUL in 3m 40s
 **验证**
 
 - `:platform:compileDebugKotlin` BUILD SUCCESSFUL（17s），`:app:compileDebugKotlin` BUILD SUCCESSFUL（1m15s）。
-- 整仓 `check`（含各模块单测、lint）见本节末尾记录。
+- 整仓 `check`（含各模块单测、lint）见本节末尾记录：`BUILD SUCCESSFUL in 5m 3s`（160 tasks）。
+- 雷电模拟器（API 28，1280x720）实测（2026-11-25）：装 0.2.9 签名 release 后点「开始无线连接」，先被 `PermissionsDenied(ACCESS_FINE_LOCATION)` 拦住 → 已在界面加权限门禁（缺权限当场 `requestPermissions`，授权后接着执行，见 `MainActivity.ensureWirelessPermissions`），补丁后二维码能正常生成。
+- 模拟器上无线数据面**走不通，且与代码无关**：`startLocalOnlyHotspot` 被系统回 `ERROR_GENERIC`；`WifiConnector` 对真实手机热点 `MTsHsia` 的扫描结果为 0 条、`connectionInfo` 报 `COMPLETED` 但 `ipAddress` 一直是 0（虚拟网卡没有 DHCP 地址）。据此把 `WifiConnector` 的成功判据改成"必须有地址"，超时文案分三档（扫描不到 / 扫到没连上 / 连上但没拿到地址）。
+- 手机侧同步现象：Mate60 Pro 扫到 `HyundaiHC`、点连接后弹华为"请重试连接"——因为这台"车机"根本没进手机热点所在的网络，手机找不到它，属模拟器限制的必然结果。
 
 **已知限制**
 

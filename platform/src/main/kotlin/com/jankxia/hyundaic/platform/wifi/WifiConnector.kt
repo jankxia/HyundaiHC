@@ -77,24 +77,64 @@ class WifiConnector(private val context: Context) {
         manager.disconnect()
         if (!manager.enableNetwork(netId, true)) return Result.Failed("系统不让启用这个网络（id=$netId）")
         manager.reconnect()
+        // 一边等一边看扫描结果：好分清「压根扫不到这个热点」和「扫到了但连不上」，车主按提示自己就能处理。
+        @Suppress("DEPRECATION")
+        try {
+            manager.startScan()
+        } catch (e: RuntimeException) {
+            Log.i(TAG, "发起扫描失败：${e.javaClass.simpleName}")
+        }
 
         val deadline = SystemClock.uptimeMillis() + timeoutMs
+        var seen = false
+        var associated = false
         while (SystemClock.uptimeMillis() < deadline) {
             val info = manager.connectionInfo
             if (info != null && info.ssid == quoted) {
-                val state = info.supplicantState
-                if (state == SupplicantState.COMPLETED || info.ipAddress != 0) {
+                // 关联上（supplicant 完成）只是拿到了 AP，tcp 要能用还差 DHCP 给的地址：没地址不算连上。
+                if (info.supplicantState == SupplicantState.COMPLETED) associated = true
+                if (info.ipAddress != 0) {
                     val ip = formatIp(info.ipAddress)
                     Log.i(TAG, "已连上热点 $ssid，地址 $ip")
                     return Result.Connected(ssid, ip)
                 }
             }
+            if (!seen && scannedSsids(manager).contains(ssid)) {
+                seen = true
+                Log.i(TAG, "扫描结果里看到了热点 $ssid")
+            }
             Thread.sleep(POLL_INTERVAL_MS)
         }
-        return Result.Failed(
-            "20 秒内没连上：确认手机热点已打开、密码对、频段是 2.4 GHz（4.4 车机多半不支持 5 GHz）；" +
-                "也可以到车机系统设置里手动连一次这个热点再回来",
+        val current = manager.connectionInfo
+        val endedAssociated = associated || (current?.ssid == quoted && current.supplicantState == SupplicantState.COMPLETED)
+        Log.w(
+            TAG,
+            "没连上：扫描到=${seen}，关联完成=${endedAssociated}，当前连接=${current?.ssid}，状态=${current?.supplicantState}，地址=${current?.ipAddress}",
         )
+        return when {
+            endedAssociated -> Result.Failed(
+                "连上「$ssid」了但没拿到地址（DHCP 失败）：手机热点可能关了 DHCP、开了「仅 IPv6」或用的是 5 GHz；" +
+                    "模拟器的虚拟网卡也拿不到真热点的地址。换真车机、把手机热点设成 2.4 GHz 再试",
+            )
+            seen -> Result.Failed(
+                "扫到了「$ssid」但没连上：密码不对、热点拒绝这台设备，或者 WiFi 正被别的网络占着；" +
+                    "可以到车机系统设置里手动连一次这个热点再回来",
+            )
+            else -> Result.Failed(
+                "扫描不到「$ssid」：手机热点没开、开在 5 GHz（这台车机多半连不了 5 GHz），或者离得太远；" +
+                    "确认手机热点开着并且是 2.4 GHz 再试",
+            )
+        }
+    }
+
+    /** 当前扫描结果里的热点名（去掉引号）。没有位置/附近设备权限或扫描被系统限流时返回空集。 */
+    @Suppress("DEPRECATION")
+    private fun scannedSsids(manager: WifiManager): Set<String> = try {
+        manager.scanResults.orEmpty().mapNotNull { it.SSID?.trim('"') }.toSet()
+    } catch (e: SecurityException) {
+        emptySet()
+    } catch (e: RuntimeException) {
+        emptySet()
     }
 
     private fun addNetwork(manager: WifiManager, ssid: String, password: String): Int {

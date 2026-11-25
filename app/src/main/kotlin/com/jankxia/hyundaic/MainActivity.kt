@@ -37,6 +37,7 @@ import com.jankxia.hyundaic.ui.QrCodes
 import com.jankxia.hyundaic.startup.BootStart
 import com.jankxia.hyundaic.startup.BootStartPolicy
 import com.jankxia.hyundaic.wireless.WirelessController
+import com.jankxia.hyundaic.wireless.WirelessPermissions
 
 /**
  * 唯一的界面（传统 View 骨架，安卓 4.4 适配版）：首页有线状态 + 开始/停止/重试；设置页、全屏投屏页、
@@ -73,6 +74,9 @@ class MainActivity : Activity() {
     private var lastQrContent: String? = null
     private lateinit var startWirelessBtn: Button
     private lateinit var stopWirelessBtn: Button
+    /** 授权完接着做的事（开始无线连接 / 让车机连上热点），权限回调里执行。 */
+    private var pendingWirelessAction: (() -> Unit)? = null
+
     /** 只有需要时才显示的那一排按钮（重试 / 授权 VPN / 重置信任库）。 */
     private lateinit var extraButtonsRow: LinearLayout
 
@@ -205,7 +209,7 @@ class MainActivity : Activity() {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(0xFFFFFFFF.toInt())
         }
-        startWirelessBtn = actionButton("开始无线连接") { wireless.start() }
+        startWirelessBtn = actionButton("开始无线连接") { ensureWirelessPermissions { wireless.start() } }
         stopWirelessBtn = actionButton("停止无线") { wireless.stop() }
 
         box.addView(wirelessStatusView)
@@ -353,8 +357,8 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 让车机连上填的手机热点（车机是 WiFi 客户端，见 [WifiConnector]）。在后台线程连，结果写回状态行。
-     * 连之前先把名称密码存下来：连上以后「开始无线连接」用的就是这一份。
+     * 让车机连上填的手机热点（车机是 WiFi 客户端，见 [WifiConnector]）。先确认权限，再在后台线程连，
+     * 结果写回状态行；连之前先把名称密码存下来，「开始无线连接」用的就是这一份。
      */
     private fun connectHotspotNow() {
         val name = hotspotNameInput.text.toString().trim()
@@ -363,6 +367,10 @@ class MainActivity : Activity() {
             Toast.makeText(this, "先填手机热点名称", Toast.LENGTH_SHORT).show()
             return
         }
+        ensureWirelessPermissions { connectHotspot(name, pass) }
+    }
+
+    private fun connectHotspot(name: String, pass: String) {
         WirelessPreferences(this).apply {
             carHotspotName = name
             carHotspotPassword = pass
@@ -373,14 +381,52 @@ class MainActivity : Activity() {
         val appContext = applicationContext
         Thread({
             val result = WifiConnector(appContext).connect(name, pass)
+            // 连上了就顺手把这个热点设为默认：不然后面点「开始无线连接」会落回「车机自己开热点」那条路。
+            val connected = result is WifiConnector.Result.Connected
+            if (connected) {
+                WirelessPreferences(appContext).apply {
+                    carHotspotName = name
+                    carHotspotPassword = pass
+                    carHotspotFiveGhz = hotspotFiveGhz.isChecked
+                    carHotspot = true
+                    wifiDirect = false
+                }
+            }
             mainHandler.post {
+                if (connected) hotspotEnable.isChecked = true
                 hotspotStatusView.text = when (result) {
-                    is WifiConnector.Result.Connected -> "已连上「${result.ssid}」，车机地址 ${result.ipAddress}"
+                    is WifiConnector.Result.Connected -> "已连上「${result.ssid}」，车机地址 ${result.ipAddress}；已设为默认"
                     is WifiConnector.Result.Failed -> "没连上：${result.reason}"
                 }
             }
         }, "HyundaiHC-WifiConnect").apply { isDaemon = true }.start()
     }
+
+    /** 无线连接要的运行时权限（安卓 6 起改 WiFi、读热点列表要位置）。缺就当场问，问完接着做 [next]。 */
+    private fun ensureWirelessPermissions(next: () -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            next()
+            return
+        }
+        if (wirelessPermissionMissing().isEmpty()) {
+            next()
+            return
+        }
+        pendingWirelessAction = next
+        requestPermissions(
+            WirelessPermissions.toRequest(Build.VERSION.SDK_INT, askNotifications = false).toTypedArray(),
+            REQ_WIRELESS,
+        )
+    }
+
+    private fun wirelessPermissionMissing(): List<String> =
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            emptyList()
+        } else {
+            WirelessPermissions.missing(Build.VERSION.SDK_INT) {
+                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+            }
+        }
 
     /** 按当前连接状态刷新骨架上的文本与按钮；完整三屏与无线界面待后续阶段补回。 */
     private fun renderState() {
@@ -510,6 +556,21 @@ class MainActivity : Activity() {
                 }
                 askNextPermission()
             }
+            REQ_WIRELESS -> {
+                val action = pendingWirelessAction
+                pendingWirelessAction = null
+                val still = wirelessPermissionMissing()
+                if (still.isEmpty()) {
+                    action?.invoke()
+                } else {
+                    Log.i(TAG, "无线权限还缺 ${still.joinToString()}：这次做不了，等车主去系统设置里开")
+                    Toast.makeText(
+                        this,
+                        "还缺${if (still.contains(WirelessPermissions.FINE_LOCATION)) "「位置」" else ""}权限：请到系统设置 → 应用 → HyundaiHC → 权限 里打开",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
         }
     }
 
@@ -561,6 +622,7 @@ class MainActivity : Activity() {
         const val REQ_NOTIFICATION = 1
         const val REQ_MIC = 2
         const val REQ_VPN = 3
+        const val REQ_WIRELESS = 4
         const val POLL_MS = 500L
     }
 }
