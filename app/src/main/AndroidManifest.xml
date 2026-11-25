@@ -134,6 +134,18 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            开机自动打开的「延迟到点」那一步：开机广播进来先算好延迟、排一个闹钟，到点由这个接收器把界面打开（或起静默等待）。
+            只由本应用自己的闹钟发显式广播，所以不导出。开关关掉时闹钟会被撤掉；接收器本身常驻，没排过就不会响。
+        -->
+        <receiver
+            android:name=".startup.BootDelayReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.jankxia.hyundaic.action.DELAYED_BOOT_LAUNCH" />
+            </intent-filter>
+        </receiver>
+
         <!-- 有线投屏的前台服务：只由本应用自己启动。 -->
         <service
             android:name=".connection.ConnectionService"

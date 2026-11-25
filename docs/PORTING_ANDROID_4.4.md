@@ -483,3 +483,32 @@ BUILD SUCCESSFUL in 3m 40s
 - `addNetwork()` 对"开放热点"（无密码）会走 `KeyMgmt.NONE`；手机热点一般都带 WPA2，正常路径是 `WPA_PSK`。
 - 车机系统若把 WiFi 连接交给厂商的定制管理器（部分国产车机），`enableNetwork()` 可能被拒，此时原因会显示"系统不让启用这个网络"，需要车主在系统设置里手动连；这条只能真机确认。
 - 以上只有编译与 JVM 单测支撑，**没有 4.4 真机证据**（本地无 API 19 镜像）；真车回报后再补"实测记录"。
+## 阶段 9：开机自启 + 可选延迟（车机开机后自动进 HyundaiHC）
+
+**起因（车主诉求）**：车机开机后要自己打开 HyundaiHC，但开机那一刻系统还没缓过来——WiFi、蓝牙没就绪，桌面可能后起来把界面盖住；安卓 10 起后台应用打开界面还要悬浮窗权限，早开等于白开。所以给一个可选的延迟：**5 / 10 / 15 / 30 / 40 / 50 / 60 秒**，默认 30 秒。
+
+**做法**：收到 `BOOT_COMPLETED` 不马上打开，先用 `AlarmManager` 排一个"到点再打开"的闹钟；闹钟响时由独立的接收器把后面那一步接着做完（和原来收到开机广播后完全相同的流程：静默连接开着走后台等待，否则打开界面）。开关仍然是开机广播接收器的启用状态（原来那套），不新增第二份状态。
+
+| 改动 | 内容 |
+| --- | --- |
+| 新增 `app/.../startup/BootDelay.kt` | 纯逻辑（`BootDelayPolicy`）：可选档位 `CHOICES_SECONDS`、默认 30 秒、`normalize`（不认识的值回落默认）、`delayMillis`、界面说明文字、以及延迟动作 `ACTION_DELAYED_LAUNCH` |
+| `startup/BootStart.kt` | 新增 `launchDelaySeconds` / `setLaunchDelaySeconds`（存在 `hyundaic-boot` 里）、`scheduleDelayedLaunch`（`ELAPSED_REALTIME_WAKEUP` + `setExact`，安卓 12 没给精确闹钟权限时退 `set`）、`cancelDelayedLaunch`（关开关时撤闹钟） |
+| `startup/BootStartReceiver.kt` | 收到开机广播先排延迟闹钟，排上就放手（不占广播）；排不上当场打开。新增 `BootDelayReceiver`（只认本应用排的闹钟，`exported=false`），到点调同一个 `startBootAction` |
+| `AndroidManifest.xml` | 注册 `.startup.BootDelayReceiver`（不导出；开机接收器仍是默认停用、由设置开关启用） |
+| `MainActivity` | 首页新增「开机自启」：开关 + 七档延迟按钮（选中的高亮）+ 说明行；开关切到关时顺手撤掉已排的闹钟 |
+
+**为什么用 `ELAPSED_REALTIME_WAKEUP`**：开机那一刻系统墙上时钟往往还没校准，网络对时之后 RTC 会跳一下；按"开机以来的时长"算才准，也免得车主改时间把闹钟改飞。
+
+**验证（雷电模拟器 API 28，1280x720）**
+
+- 界面：七档延迟一行排开不换行、不重叠；点「30 秒」后高亮跟着走、`shared_prefs/hyundaic-boot.xml` 里落成 `boot_delay_seconds=30`；开关切到开后 `dumpsys package` 里 `BootStartReceiver` 变为启用。
+- 端到端：`am broadcast -a android.intent.action.BOOT_COMPLETED -n com.jankxia.hyundaic/.startup.BootStartReceiver` 后日志
+  `开机自启：30 秒后打开界面（系统已运行 302 秒）` → 精确 30.000 秒后 `开机自启：延迟到点，打开界面（系统已运行 332 秒）` → `收到开机广播…打开界面` → `开机打开界面的结果：OPENED`。
+- 单测：新增 `BootDelayPolicyTest`（档位、默认值、非法值回落、毫秒换算、说明文字），`:app:testDebugUnitTest` 通过。
+
+**已知限制**
+
+- 车机系统若在自启动管理里禁掉本应用，开机广播根本收不到（应用自己查不到这个设置，只能按有没有收到广播推断），延迟功能随之失效；比亚迪的「禁止后台启动项」要车主手动放行。
+- 安卓 10 起后台打开界面要「显示在其他应用上层」权限；没有时闹钟照响、界面出不来，日志记 `BLOCKED_NO_OVERLAY`。
+- 安卓 12 起没给精确闹钟授权时退回普通闹钟，实际延迟误差几秒（车机 4.4 无此问题）。
+- 延迟期间进程仍可能被系统收掉：闹钟由系统拉起进程，功能不受影响，但那条 `goAsync` 广播的宽限期已经过了，只影响日志里的"多久打开"统计。

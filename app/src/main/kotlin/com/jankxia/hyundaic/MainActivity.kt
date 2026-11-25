@@ -34,6 +34,7 @@ import com.jankxia.hyundaic.settings.AppSettings
 import com.jankxia.hyundaic.settings.AudioPreferences
 import com.jankxia.hyundaic.settings.WirelessPreferences
 import com.jankxia.hyundaic.ui.QrCodes
+import com.jankxia.hyundaic.startup.BootDelayPolicy
 import com.jankxia.hyundaic.startup.BootStart
 import com.jankxia.hyundaic.startup.BootStartPolicy
 import com.jankxia.hyundaic.wireless.WirelessController
@@ -74,6 +75,10 @@ class MainActivity : Activity() {
     private var lastQrContent: String? = null
     private lateinit var startWirelessBtn: Button
     private lateinit var stopWirelessBtn: Button
+    /** 开机自启：开关 + 几档延迟按钮（选中的那个高亮）。 */
+    private lateinit var autoStartToggle: CheckBox
+    private lateinit var autoStartHint: TextView
+    private var autoStartDelayButtons: List<Pair<Int, Button>> = emptyList()
     /** 授权完接着做的事（开始无线连接 / 让车机连上热点），权限回调里执行。 */
     private var pendingWirelessAction: (() -> Unit)? = null
 
@@ -189,6 +194,7 @@ class MainActivity : Activity() {
 
         root.addView(buildWirelessSection())
         root.addView(buildHotspotConfig())
+        root.addView(buildAutoStartSection())
 
         // 车机横屏高度只有 720px，热点配置区排在下面很容易出界；用 ScrollView 兜住，出界也能滚到。
         setContentView(ScrollView(this).apply {
@@ -196,6 +202,78 @@ class MainActivity : Activity() {
             addView(root)
         })
         loadHotspotConfig()
+        loadAutoStartConfig()
+    }
+
+    /**
+     * 开机自启：开关（就是开机广播接收器的启用状态）+ 延迟几秒再打开。
+     * 车机开机到系统、WiFi 就绪要一会儿，马上打开常常抢在系统前面被打不开或被桌面盖住，所以让车主自己选延迟。
+     */
+    private fun buildAutoStartSection(): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(sectionTitle("开机自启"))
+        autoStartToggle = CheckBox(this).apply {
+            text = "车机开机后自动打开 HyundaiHC"
+            textSize = 14f
+            minHeight = dp(40)
+            setOnCheckedChangeListener { _, checked ->
+                BootStart.setEnabled(this@MainActivity, checked)
+                renderAutoStart()
+            }
+        }
+        box.addView(autoStartToggle)
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        autoStartDelayButtons = BootDelayPolicy.CHOICES_SECONDS.mapIndexed { index, seconds ->
+            val button = Button(this).apply {
+                text = "$seconds 秒"
+                textSize = 13f
+                minHeight = dp(40)
+                minWidth = 0
+                setPadding(0, 0, 0, 0)
+                setOnClickListener {
+                    BootStart.setLaunchDelaySeconds(this@MainActivity, seconds)
+                    renderAutoStart()
+                }
+            }
+            row.addView(
+                button,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (index > 0) marginStart = dp(8)
+                },
+            )
+            seconds to button
+        }
+        box.addView(row)
+
+        autoStartHint = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, dp(6), 0, 0)
+        }
+        box.addView(autoStartHint)
+        return box
+    }
+
+    private fun loadAutoStartConfig() {
+        autoStartToggle.isChecked = BootStart.isEnabled(this)
+        renderAutoStart()
+    }
+
+    /** 刷新自启那块：选中的延迟高亮、说明文字跟着开关和延迟变。 */
+    private fun renderAutoStart() {
+        val enabled = BootStart.isEnabled(this)
+        val delay = BootStart.launchDelaySeconds(this)
+        autoStartDelayButtons.forEach { (seconds, button) ->
+            val selected = seconds == delay
+            button.setTextColor(if (selected) 0xFFFFFFFF.toInt() else 0xFFB3B3B3.toInt())
+            button.setBackgroundColor(if (selected) 0xFF2D6CDF.toInt() else 0x33FFFFFF)
+        }
+        autoStartHint.text = if (!enabled) {
+            "关着：车机开机不会自己打开本应用。打开开关后按上面的秒数延迟打开。"
+        } else {
+            BootDelayPolicy.describe(delay) +
+                "；车主在系统的自启动管理里禁掉本应用时这里会失效，安卓 10 起还要给「显示在其他应用上层」权限。"
+        }
     }
 
     /** 最小无线入口：开始/停止 + 状态行 + 二维码。 */

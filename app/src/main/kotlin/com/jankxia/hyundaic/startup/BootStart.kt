@@ -1,5 +1,7 @@
 package com.jankxia.hyundaic.startup
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -7,6 +9,7 @@ import android.content.pm.PackageManager
 import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -38,7 +41,7 @@ internal object BootStart {
         false
     }
 
-    /** 关 = 回到清单里的默认（停用）。立即生效。 */
+    /** 关 = 回到清单里的默认（停用）。立即生效；顺带把已经排上的延迟打开撤掉。 */
     fun setEnabled(context: Context, enabled: Boolean) {
         val state = if (enabled) {
             PackageManager.COMPONENT_ENABLED_STATE_ENABLED
@@ -50,6 +53,77 @@ internal object BootStart {
             Log.i(TAG, "开机自动打开：${if (enabled) "开" else "关"}")
         } catch (e: RuntimeException) {
             Log.e(TAG, "切换开机广播接收器失败", e)
+        }
+        if (!enabled) cancelDelayedLaunch(context)
+    }
+
+    /** 开机后延迟几秒再打开（[BootDelayPolicy.normalize] 兜底，只可能是那几档）。 */
+    fun launchDelaySeconds(context: Context): Int =
+        BootDelayPolicy.normalize(prefs(context).getInt(KEY_DELAY_SECONDS, BootDelayPolicy.DEFAULT_SECONDS))
+
+    fun setLaunchDelaySeconds(context: Context, seconds: Int) {
+        prefs(context).edit { putInt(KEY_DELAY_SECONDS, BootDelayPolicy.normalize(seconds)) }
+        Log.i(TAG, "开机自启延迟：${BootDelayPolicy.normalize(seconds)} 秒")
+    }
+
+    /**
+     * 排一个「延迟到点再打开」的闹钟：用 `ELAPSED_REALTIME_WAKEUP`，因为开机那一刻系统的墙上时钟往往还没校准
+     * （网络对时之后 RTC 会跳一下），按开机以来的时长算才准。返回 false 表示没排上（调用方当场打开，别干等）。
+     *
+     * 安卓 12 起精确闹钟要单独授权，没授权时 `setExact` 抛 `SecurityException`：退回 `set`，误差多几秒可以接受。
+     */
+    fun scheduleDelayedLaunch(context: Context, seconds: Int): Boolean {
+        val manager = context.applicationContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return false
+        val delay = BootDelayPolicy.delayMillis(seconds)
+        val at = SystemClock.elapsedRealtime() + delay
+        val pending = delayedLaunchPendingIntent(context) ?: return false
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                manager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
+            } else {
+                manager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
+            }
+            Log.i(TAG, "开机自启：${seconds} 秒后打开界面（系统已运行 ${SystemClock.elapsedRealtime() / 1000} 秒）")
+            true
+        } catch (e: SecurityException) {
+            Log.w(TAG, "排不上精确闹钟（${e.message}），改用普通闹钟")
+            try {
+                manager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
+                true
+            } catch (e2: RuntimeException) {
+                Log.e(TAG, "排延迟打开失败", e2)
+                false
+            }
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "排延迟打开失败", e)
+            false
+        }
+    }
+
+    /** 车主关掉开机自启时把闹钟撤掉（不撤的话关掉开关后还会被打开一次）。 */
+    fun cancelDelayedLaunch(context: Context) {
+        val manager = context.applicationContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val pending = delayedLaunchPendingIntent(context, create = false) ?: return
+        try {
+            manager.cancel(pending)
+            pending.cancel()
+            Log.i(TAG, "开机自启：撤掉已排上的延迟打开")
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "撤延迟打开失败：${e.message}")
+        }
+    }
+
+    private fun delayedLaunchPendingIntent(context: Context, create: Boolean = true): PendingIntent? {
+        val intent = Intent(context, BootDelayReceiver::class.java)
+            .setAction(BootDelayPolicy.ACTION_DELAYED_LAUNCH)
+        // 安卓 12 起 PendingIntent 必须声明可变性；这里不带额外数据，用不可变。
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        return if (create) {
+            PendingIntent.getBroadcast(context, DELAY_REQUEST_CODE, intent, flags)
+        } else {
+            PendingIntent.getBroadcast(context, DELAY_REQUEST_CODE, intent, flags or PendingIntent.FLAG_NO_CREATE)
         }
     }
 
@@ -178,6 +252,10 @@ internal object BootStart {
     private const val PREFS_FILE = "hyundaic-boot"
     private const val KEY_LAST_BOOT = "last_boot"
     private const val KEY_SILENT = "silent_connect"
+    private const val KEY_DELAY_SECONDS = "boot_delay_seconds"
+
+    /** 延迟打开的闹钟固定用这一个 requestCode：同一时间只会有一个（开机广播再来就覆盖旧的）。 */
+    private const val DELAY_REQUEST_CODE = 1
 
     /** 比亚迪「选择禁止后台启动项」对话框的动作（清单里的 queries 也要声明，安卓 11 起才查得到）。 */
     private const val ACTION_BYD_APP_START_MANAGEMENT = "android.intent.action.BYD_APPSTARTMANAGEMENT"

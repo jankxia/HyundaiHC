@@ -19,16 +19,36 @@ import com.jankxia.hyundaic.platform.log.Log
  *
  * 默认只打开界面，不起服务，连接要的前台服务由界面打开后发起（[BootLaunchWatch]）。
  * 设置「开机静默连接」开着时不打开界面，在后台起前台服务等待（[SilentBootWatch]），后台开始不了再改走打开界面。
+ *
+ * 车机上加了「延迟打开」（[BootDelayPolicy]）：收到开机广播不马上打开，先排一个闹钟，到点由 [BootDelayReceiver] 接着做，
+ * 免得抢在系统前面、被桌面盖住或打不开。
  */
 class BootStartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (!BootStartPolicy.isBootBroadcast(intent.action)) return
         val app = context.applicationContext
-        if (app is HyundaiHcApp && BootStart.isSilent(app)) {
-            SilentBootWatch(app, goAsync()).start()
-        } else {
-            BootLaunchWatch(app, goAsync()).start()
-        }
+        val seconds = BootStart.launchDelaySeconds(app)
+        // 排闹钟是瞬时的，排上就不占着这条广播了；排不上（极少）当场打开，别让车主干等。
+        if (BootStart.scheduleDelayedLaunch(app, seconds)) return
+        startBootAction(app, goAsync())
+    }
+}
+
+/** 延迟到点：把开机那一步接着做完。闹钟由 [BootStart.scheduleDelayedLaunch] 排，应用没在运行时系统会把进程拉起来。 */
+class BootDelayReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != BootDelayPolicy.ACTION_DELAYED_LAUNCH) return
+        Log.i(BootStart.TAG, "开机自启：延迟到点，打开界面（系统已运行 ${SystemClock.elapsedRealtime() / 1000} 秒）")
+        startBootAction(context.applicationContext, goAsync())
+    }
+}
+
+/** 收到开机广播（或延迟到点）之后的共同动作：静默连接开着走后台等待，否则打开界面。 */
+internal fun startBootAction(app: Context, pending: BroadcastReceiver.PendingResult?) {
+    if (app is HyundaiHcApp && BootStart.isSilent(app)) {
+        SilentBootWatch(app, pending).start()
+    } else {
+        BootLaunchWatch(app, pending).start()
     }
 }
 
@@ -130,3 +150,4 @@ internal class BootLaunchWatch(
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
     override fun onActivityDestroyed(activity: Activity) = Unit
 }
+
